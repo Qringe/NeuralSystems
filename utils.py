@@ -116,4 +116,4 @@ def download():
         # pip install gdown
         os.system("gdown https://drive.google.com/uc?id=1nvLex6f5HY48eZ6MyvVcP122Q5N9sDr2")
         os.system("mv train_dataset.zip Data/")
-        os.system("unzip train_dataset.zip")
+        os.system("unzip Data/train_dataset.zip -d Data/")
