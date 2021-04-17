@@ -43,15 +43,16 @@ def train_syllable_extractor():
     print("Min length found", min([b-a for a,b,c in ground_truth_tuples]))
 
     model_path = path.join(base,"Data/syllable_extr.model")
+    wnd_sz = 10
     if not path.isfile(model_path):
-        X_train, y_train = get_train_data(Xs_train, ground_truth_tuples, wnd_sz=20, dt=5, limit=20000)
+        X_train, y_train = get_train_data(Xs_train, ground_truth_tuples, wnd_sz=wnd_sz, dt=5, limit=200000)
         clf = train_model(X_train,y_train)
         dump(clf, model_path) 
     else:
         clf = load(model_path)
 
     def syllable_extractor(spectogram, idx):
-        return predict_syllables(spectogram, idx, clf, wnd_sz=20)
+        return predict_syllables(spectogram, idx, clf, wnd_sz=wnd_sz)
 
     return syllable_extractor
 
