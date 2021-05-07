@@ -27,6 +27,9 @@ from analyze_errors import compare_classifiers
 ## NOTE: These are the existing bird names ["g17y2", "g19o10", "g4p5", "R3428"] as stord in 
 # the 'bird_names' variable
 
+## Step 0: First make sure that you have all the necessary files:
+download()
+
 ## STEP 1: Load the data of one or several birds. Let's take two for our example
 bird_data = load_bird_data(names = ["g17y2", "g19o10"])
 

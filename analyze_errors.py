@@ -15,8 +15,7 @@ from utils import (
     # Other stuff
     hash_spectograms, score_predictions
 )
-from extract_syllables import ( extract_and_store_datasets, 
-                                load_dataset)
+
 from classifiers import (
     # For the svm
     train_SVM, predict_syllables_SVM,
