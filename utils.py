@@ -428,7 +428,7 @@ def train_test_split(bird_data, configs = None, seed = None):
         def build_mapper(id_list):
             label_mapper = {}
             new_index = 0
-            for label in sorted(id_list):
+            for label in id_list:
                 label_mapper[label] = new_index
                 new_index += 1
             return label_mapper

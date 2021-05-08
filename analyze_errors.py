@@ -320,9 +320,9 @@ if __name__ == "__main__":
         data_val, data_test = train_test_split(bird_data = data_test, configs = 0.5, seed = 42)
 
         # Extract the windows from the spectograms
-        windows_train, _ = create_windows(bird_data = data_train, wnd_sizes = wnd_sz, limits = limit, on_fracs = 0.7, dt = 5, seed = 42)
-        windows_val, _ = create_windows(bird_data = data_val, wnd_sizes = wnd_sz, limits = limit/2, on_fracs = 0.7, dt = 5, seed = 42)
-        windows_test, _ = create_windows(bird_data = data_test, wnd_sizes = wnd_sz, limits = limit/2, on_fracs = 0.7, dt = 5, seed = 42)
+        windows_train, _ = create_windows(bird_data = data_train, wnd_sizes = wnd_sz, limits = limit, on_fracs = 0.5, dt = 5, seed = 42)
+        windows_val, _ = create_windows(bird_data = data_val, wnd_sizes = wnd_sz, limits = int(limit/2), on_fracs = 0.5, dt = 5, seed = 42)
+        windows_test, _ = create_windows(bird_data = data_test, wnd_sizes = wnd_sz, limits = int(limit/2), on_fracs = 0.5, dt = 5, seed = 42)
 
         X_train, y_train = flatten_windows_dic(windows_train[wnd_sz])
         X_val, y_val = flatten_windows_dic(windows_val[wnd_sz])
