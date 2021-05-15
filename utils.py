@@ -44,6 +44,45 @@ predictions_path = data_path + "Predictions/"
 ##########################################################################################################################
 # General functions
 
+def tuples2vector(meta_tuples):
+    """
+    Takes as input a list of tuples of the form:
+        (
+            [ (on1, off1, spec), (on2, off2, spec), ... ],    # A list of tuples denoting syllable positions
+            length  # Length of the spectogram from which the above syllables are taken from
+        )
+    The list is then converted to a long array of 0s and 1s. Example:
+        Input: A list containing a single tuple:
+        [(
+            [ (2, 4, 1), (7, 11, 1), (13, 15, 1)],
+            17
+        )]
+        Output: The tuples converted to a vector:
+            [0,0,1,1,1,0,0,1,1,1,1,1,0,1,1,1,0,0]
+    """
+
+    output_vec = []
+
+    for tup in meta_tuples:
+        # Extract the syllables and create an output vector for this spectogram
+        tuples, length = tup
+        temp_vec = np.zeros(length, dtype=np.int8)
+
+        # Check that tuples are all from the same spectogram
+        spec_ids = set([t[2] for t in tuples])
+        if len(spec_ids) > 1:
+            raise Exception(f"All tuples in a list have to come from the same spectogram! Got ids {spec_ids}")
+
+        # Iterate through all syllables and set the corresponding area in 'temp_vec' to 1
+        for syllable in tuples:
+            on, off, idx = syllable[:3]
+            temp_vec[on:off+1] = 1
+        
+        # Append the output vector with the output from this spectogram
+        output_vec.extend(temp_vec.tolist())
+
+    return output_vec
+
 def score_predictions(y_true, y_pred, tolerance = 4):
     """
     The function used to score the predictions for a spectogram
@@ -73,7 +112,7 @@ def score_predictions(y_true, y_pred, tolerance = 4):
                 index[j] = t_onset.index(p_onset[i] + j)
             else:
                 index[j] = -1
-        tmpidx = list(filter(lambda x: x > 0, index))
+        tmpidx = list(filter(lambda x: x > -1, index))
         if len(tmpidx) == 0:
             FP = FP + 1
             p_ob_non.append(p_onset[i])
@@ -158,64 +197,6 @@ def normalize(X, mean=None, std=None):
 ##########################################################################################################################
 # Data-handling functions
 
-def get_train_data(spectograms, ground_truth_tuples, wnd_sz, limit=10000, dt=3, use_features=True):
-    """
-    Extract 128 x wnd_sz chunks from within and outside [on,off] and store in list.
-    Extract features from the list and store in array. Return array.
-    """
-    Xs = []; ys = []
-    w = int(wnd_sz / 2)
-    last_idx = 0
-    current_pool = []
-    n_added_total = 0
-    def get_wnd_data(t,idx,):
-        l = int(t-w)
-        r = int(t+w)
-        if l < 0 or r >= spectograms[idx].shape[1]:
-            return None
-        if use_features:
-            X_tmp = extract_features(spectograms[idx][:,l:r])
-        else:
-            X_tmp = spectograms[idx][:,l:r]
-        return X_tmp
-
-    for idx_tuple,tup in enumerate(ground_truth_tuples):
-        print(f"Data {idx_tuple}/{len(ground_truth_tuples)}")
-        if tup[2] == last_idx:
-            current_pool.append(tup)
-        else:
-            n_added = 0
-            for on,off,idx in current_pool:
-                for t in range(int(on),int(off),dt):
-                    X_f = get_wnd_data(t, idx)
-                    if X_f is None:
-                        continue
-                    Xs.append(X_f)
-                    ys.append(1)
-                    n_added += 1
-                    n_added_total += 1
-            for on,off,idx in reverse_on_off(current_pool, spectograms[last_idx].shape[1]):
-                for t in range(int(on),int(off),dt):
-                    if n_added == 0:
-                        break
-                    X_f = get_wnd_data(t, idx)
-                    if X_f is None:
-                        continue
-                    Xs.append(X_f)
-                    ys.append(0)
-                    n_added -= 1
-                    n_added_total += 1
-
-            if n_added_total >= limit:
-                break
-
-            last_idx = tup[2]
-            current_pool = []
-
-    Xs = np.array(Xs)
-    ys = np.array(ys)
-    return Xs[:limit],ys[:limit]
-
 def download():
     """
     Checks if the data files are present and otherwise downloads them
@@ -293,6 +274,7 @@ def load_bird_data(names = None, indices = None, drop_unlabelled = False):
         # NOTE: The 'order = C' is required to make the hash function 'hash_spectograms' work properly!
         for i in range(len(Xs_train)):
             Xs_train[i] = Xs_train[i].copy(order='C')
+            Xs_train[i] = Xs_train[i].astype(np.float)
         current_data = {
             "Xs_train": Xs_train,
             "tuples" : ground_truth_tuples,
@@ -301,6 +283,10 @@ def load_bird_data(names = None, indices = None, drop_unlabelled = False):
 
         # The data can be either accessed using the string name of the bird, or the index
         bird_data[bird] = current_data
+
+    if drop_unlabelled:
+        labelled_data, unlabelled_data = extract_labelled_spectograms(bird_data)
+        return labelled_data
 
     return bird_data
 
@@ -448,6 +434,57 @@ def train_test_split(bird_data, configs = None, seed = None):
         bird_data_test[bird_name]["tuples"] = tuples_test
 
     return bird_data_train, bird_data_test
+
+def standardize_data(bird_data, coarse_mode = "per_spectogram", fine_mode = "per_row"):
+    """
+    Takes as input a dictionary containing the data of different birds (as returned by the function 'load_bird_data') and
+    standardizes the spectograms. The standardization can be either done for each single spectogram (coarse_mode = "per_spectogram")
+    or for each bird (coarse_mode = "per_bird"). Furthermore, you can decide, whether the standardization should be done
+    per row (fine_mode = "per_row"), in which case the means and stds are computed per row, or if you want to use just one scalar
+    for the mean and std (fine_mode = "scalar"). The two parameters 'coarse_mode' and 'fine_mode' can be combined arbitrarily.
+
+    'bird_data' should have the form:
+        {
+            "bird_name1": {"Xs_train" : Xs_train, "tuples" : ground_truth_tuples, "ids_labelled" : ids_labelled},
+            "bird_name2": {"Xs_train" : Xs_train, "tuples" : ground_truth_tuples, "ids_labelled" : ids_labelled},
+            ...
+        }
+    """
+    if coarse_mode not in ["per_bird", "per_spectogram"]:
+        raise Exception(f"'coarse_mode' must be one of ['per_bird', 'per_spectogram'], but you provided {coarse_mode}")
+    if fine_mode not in ["per_row", "scalar"]:
+        raise Exception(f"'fine_mode' must be one of ['per_row', 'scalar'], but you provided {fine_mode}")
+
+    converted = bird_data.copy()
+
+    # Iterate over all birds
+    for bird_name in bird_data.keys():
+        specs = bird_data[bird_name]["Xs_train"]
+
+        if coarse_mode == "per_bird":
+            temp = np.concatenate(specs,axis = 1)
+            if fine_mode == "scalar":
+                means = np.mean(temp)
+                stds = np.std(temp)
+            elif fine_mode == "per_row":
+                means = np.mean(temp, axis=1).reshape((specs[0].shape[0],-1))
+                stds = np.std(temp, axis=1).reshape((specs[0].shape[0],-1))
+
+            for i in range(specs.shape[0]):
+                    specs[i] = (specs[i] - means) / stds
+
+        elif coarse_mode == "per_spectogram":
+            for i in range(specs.shape[0]):
+                if fine_mode == "scalar":
+                    specs[i] = (specs[i] - np.mean(specs[i])) / np.std(specs[i])
+                elif fine_mode == "per_row":
+                    means = np.mean(specs[i], axis=1).reshape((specs[i].shape[0],-1))
+                    stds = np.std(specs[i], axis=1).reshape((specs[i].shape[0],-1))
+                    specs[i] = (specs[i] - means) / stds
+
+        converted[bird_name]["Xs_train"] = specs
+
+    return converted
 
 def extract_birds(bird_data, bird_names):
     """
@@ -776,7 +813,7 @@ def load_dataset_old(wnd_sz, use_feature_extraction, limit):
 
 class BirdDataLoader:
 
-    def __init__(self, train, validation, test, network_type = "cnn"):
+    def __init__(self, train, validation, test, network_type = "cnn", normalize_input = True):
         # network type can be either 'cnn' or 'rnn'
 
         self.X_train, self.X_val, self.X_test = np.array(train[0]), np.array(validation[0]), np.array(test[0])
@@ -785,49 +822,24 @@ class BirdDataLoader:
         self.wnd_sz = self.X_train.shape[2]
         self.nfreq = self.X_train.shape[1]
 
-        self.mean = torch.mean(torch.tensor(self.X_train).float())
-        self.std = torch.std(torch.tensor(self.X_train).float())
-
-        if network_type == "cnn":
-            dimensions = (-1,1,128,self.wnd_sz)
-        elif network_type == "rnn":
-            dimensions = (-1,128,self.wnd_sz)
-
-        self.train_dataset = TensorDataset(torch.reshape(normalize(torch.tensor(self.X_train).float()),dimensions),torch.tensor(self.y_train))
-        self.val_dataset = TensorDataset(torch.reshape(normalize(torch.tensor(self.X_val).float()),dimensions),torch.tensor(self.y_val))
-        self.test_dataset = TensorDataset(torch.reshape(normalize(torch.tensor(self.X_test).float()),dimensions),torch.tensor(self.y_test))
-
-    def get_data_loader(self, dset, shuffle, num_workers, batch_size):
-        if dset == "train":
-            dataloader = DataLoader(dataset=self.train_dataset, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size)
-        elif dset == "val":
-            dataloader = DataLoader(dataset=self.val_dataset, shuffle=shuffle, num_workers=num_workers, batch_size=batch_size)
-        elif dset == "test":
-            dataloader = DataLoader(dataset=self.test_dataset, shuffle=False, num_workers=num_workers, batch_size=batch_size)
+        if normalize_input:
+            self.mean = torch.mean(torch.tensor(self.X_train).float())
+            self.std = torch.std(torch.tensor(self.X_train).float())
+            self.X_train = normalize(torch.tensor(self.X_train).float())
+            self.X_val = normalize(torch.tensor(self.X_val).float())
+            self.X_test = normalize(torch.tensor(self.X_test).float())
         else:
-            assert False, "Unknown dset"
-        return dataloader
-
-class BirdDataLoaderOLD:
-
-    def __init__(self,X,y,network_type = "cnn"):
-        # network type can be either 'cnn' or 'rnn'
-        self.wnd_sz = X.shape[2]
-        # - Split data 
-        self.X_train, X_test, self.y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=42)
-        self.X_test, self.X_val, self.y_test, self.y_val = train_test_split(X_test, y_test, test_size=0.5, random_state=42)
-
-        self.mean = torch.mean(torch.tensor(self.X_train).float())
-        self.std = torch.std(torch.tensor(self.X_train).float())
+            self.mean = 0.0
+            self.std = 1.0
 
         if network_type == "cnn":
             dimensions = (-1,1,128,self.wnd_sz)
         elif network_type == "rnn":
             dimensions = (-1,128,self.wnd_sz)
 
-        self.train_dataset = TensorDataset(torch.reshape(normalize(torch.tensor(self.X_train).float()),dimensions),torch.tensor(self.y_train))
-        self.val_dataset = TensorDataset(torch.reshape(normalize(torch.tensor(self.X_val).float()),dimensions),torch.tensor(self.y_val))
-        self.test_dataset = TensorDataset(torch.reshape(normalize(torch.tensor(self.X_test).float()),dimensions),torch.tensor(self.y_test))
+        self.train_dataset = TensorDataset(torch.reshape(self.X_train,dimensions),torch.tensor(self.y_train))
+        self.val_dataset = TensorDataset(torch.reshape(self.X_val,dimensions),torch.tensor(self.y_val))
+        self.test_dataset = TensorDataset(torch.reshape(self.X_test,dimensions),torch.tensor(self.y_test))
 
     def get_data_loader(self, dset, shuffle, num_workers, batch_size):
         if dset == "train":

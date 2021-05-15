@@ -8,7 +8,7 @@ from utils import (
     # Data handling functions
     download, load_bird_data, extract_labelled_spectograms, train_test_split,
     extract_birds, create_windows, store_birds, load_birds, store_dataset,
-    load_dataset, flatten_windows_dic
+    load_dataset, flatten_windows_dic, standardize_data
 )
 
 from classifiers import (
@@ -39,7 +39,12 @@ bird_data = load_bird_data(names = ["g17y2", "g19o10"])
 #       "g19o10": {"Xs_train" : Xs_train, "tuples" : ground_truth_tuples, "ids_labelled" : ids_labelled},
 #   }
 
-## STEP 2: Not all spectograms are labelled. For training we can only use labelled spectograms.
+## STEP 2: Standardize the data. There are several options for standardizing. You can either standardize 
+# per bird or per spectogram and you can also choose whether the means and standard deviations shall be
+# computed as scalars or on a per-row basis
+bird_data = standardize_data(bird_data, coarse_mode = "per_bird", fine_mode = "per_row")
+
+## STEP 3: Not all spectograms are labelled. For training we can only use labelled spectograms.
 # Therefore, extract all labelled spectograms
 data_labelled, data_unlabelled = extract_labelled_spectograms(bird_data)
 
@@ -47,7 +52,7 @@ data_labelled, data_unlabelled = extract_labelled_spectograms(bird_data)
 # spectograms and the other all the unlabelled spectograms. Furthermore, the field "ids_labelled" is not present
 # anymore as it was only used to extract the labelled spectograms
 
-## STEP 3: Create a train-test split
+## STEP 4: Create a train-test split
 # Let's use 20% of all spectograms of bird "g17y2" and 80% of all spectograms of bird "g19o10" for testing
 configs = {
     "g17y2" : 0.2,
@@ -61,7 +66,7 @@ data_train, data_test = train_test_split(bird_data = data_labelled, configs = co
 #       "g19o10": {"Xs_train" : Xs_train, "tuples" : ground_truth_tuples},
 #   }
 
-## STEP 4: Extract windows from the spectograms for different window sizes
+## STEP 5: Extract windows from the spectograms for different window sizes
 #  Let's define two different window sizes for the moment
 wnd_sizes = [20,40]
 
@@ -123,13 +128,13 @@ windows_test, real_sizes_test = create_windows(
         dt = 5,
         seed = 42)
 
-## STEP 5: Let's store the dataset such that we don't have to recompute it everytime
+## STEP 6: Let's store the dataset such that we don't have to recompute it everytime
 store_dataset(name="two_birds", results=windows_train, configs = real_sizes_train)
 
 # Let's reload it now
 windows_train, real_sizes_train = load_dataset(name="two_birds")
 
-## STEP 6: Let's train two models on this dataset
+## STEP 7: Let's train two models on this dataset
 # First, let's restrict us to the data extracted with window_size 20
 windows_train = windows_train[20]
 windows_test = windows_test[20]
@@ -159,7 +164,6 @@ hidden_size = 100
 # Train a CNN and an RNN
 cnn = train_CNN(dataset,model_name = "test_cnn")
 rnn = train_RNN(dataset,model_name = "test_rnn", network_type = network_type, hidden_size = hidden_size, num_layers=num_layers)
-
 
 # Load the CNN
 cnn = load_cnn(model_path + "test_cnn", wnd_sz)

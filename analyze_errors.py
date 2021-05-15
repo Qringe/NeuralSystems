@@ -2,6 +2,7 @@ import numpy as np
 import os.path as path
 from scipy.io import loadmat
 from joblib import dump, load
+from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
 from utils import (
     # Constants
@@ -10,10 +11,10 @@ from utils import (
     # Data handling functions
     download, load_bird_data, extract_labelled_spectograms, train_test_split,
     extract_birds, create_windows, store_birds, load_birds, store_dataset,
-    load_dataset, flatten_windows_dic,
+    load_dataset, flatten_windows_dic, standardize_data,
 
     # Other stuff
-    hash_spectograms, score_predictions
+    hash_spectograms, tuples2vector, score_predictions
 )
 
 from classifiers import (
@@ -58,7 +59,7 @@ def predict_dataset(model, spectograms, ground_truth_tuples, name, read_cache=Tr
         y_true = sorted([tup for tup in ground_truth_tuples if tup[2] == index],
                         key=lambda t: (t[2],t[0],t[1]))
 
-        results.append({"y_true": y_true,"y_pred": y_pred})
+        results.append({"y_true": y_true,"y_pred": y_pred, "spectogram_length": len(spec[0])})
 
     # Store the results, if write_cache = True
     if write_cache:
@@ -68,6 +69,7 @@ def predict_dataset(model, spectograms, ground_truth_tuples, name, read_cache=Tr
 
 def predict_whole_dataset(model, name, read_cache=True, write_cache=True):
     """
+    NOTE: THIS FUNCTION IS OUTDATED!
     Loads the whole dataset and makes predictions. 
     
     If 'read_cache==True', then the
@@ -109,6 +111,9 @@ def analyze_errors(predictions):
             - Severity: Medium
         4. Split error: Here the model did accidentally split a syllable into 2 syllables
             - Severity: Large
+    
+    Furthermore, it displays a few other metrics such as a score (used for grading),
+    how many columns were predicted correctly in total and other metrics
     """
     ## A few helper functions which each operate on two lists of tuples
     def set_intersect(a, b):
@@ -149,11 +154,19 @@ def analyze_errors(predictions):
     type1_amount = type2_amount = type3_amount = type4_amount = 0
 
     accuracies = []
+    prediction_tuples = []
+    prediction_vector = []
+    solution_tuples = []
+    solution_vector = []
 
     # Iterate through all spectograms
     for index, result in enumerate(predictions):
         y_true = result['y_true']
         y_pred = result['y_pred']
+        length = result['spectogram_length']
+
+        prediction_tuples.append((y_pred,length))
+        solution_tuples.append((y_true,length))        
 
         # If we don't have any lables, there is nothing to analyze
         if y_true == []:
@@ -186,6 +199,21 @@ def analyze_errors(predictions):
 
         accuracies.append(score_predictions(y_true, y_pred))
 
+    ## Compute a few standard error metrics
+    # First transform the tuples into a single array of 0s and 1s representing local/
+    # non-vocal columns
+
+    prediction_vector = tuples2vector(prediction_tuples)
+    solution_vector = tuples2vector(solution_tuples)
+
+    # Compute error metrics
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        solution_vector,
+        prediction_vector,
+        average = "binary"
+    )
+    accuracy = accuracy_score(solution_vector, prediction_vector)
+
     return {'type1_amount': type1_amount,
             'type2_amount': type2_amount,
             'type3_amount': type3_amount,
@@ -194,8 +222,12 @@ def analyze_errors(predictions):
             'type2_tuples': type2_tuples,
             'type3_tuples': type3_tuples,
             'type4_tuples': type4_tuples,
-            'accuracy_mean' : np.mean(accuracies),
-            'accuracy_std' : np.std(accuracies)}
+            'accuracy' : accuracy,
+            'precision' : precision,
+            'recall' : recall,
+            'f1' : f1,
+            'score_mean' : np.mean(accuracies),
+            'score_std' : np.std(accuracies)}
 
 def compare_classifiers(dataset = None, model_dic = None, print_summary = True):
     """
@@ -214,6 +246,9 @@ def compare_classifiers(dataset = None, model_dic = None, print_summary = True):
     """
     if model_dic == None:
         raise Exception("You need to specify at least one model!")
+
+    # Implemented error metrics
+    metrics = ['accuracy', 'precision', 'recall', 'f1', 'score_mean', 'score_std']
 
     # If dataset is not specified, use total dataset over all birds
     if dataset == None:
@@ -252,11 +287,10 @@ def compare_classifiers(dataset = None, model_dic = None, print_summary = True):
                 error_name = f"type{error_type}_amount"
                 summary_total[model_name][error_name] = summary_total[model_name].get(error_name,0) + \
                                                                 errors[model_name][error_name]
-            # Add the accuracies per model
-            summary_total[model_name]['accuracy_mean'] = summary_total[model_name].get('accuracy_mean',[]) \
-                        + [errors[model_name]['accuracy_mean']]
-            summary_total[model_name]['accuracy_std'] = summary_total[model_name].get('accuracy_std',[]) \
-                        + [errors[model_name]['accuracy_std']]
+            # Add the other score metrics per model
+            for metric in metrics:
+                summary_total[model_name][metric] = summary_total[model_name].get(metric,[]) \
+                            + [errors[model_name][metric]]
 
         summary_total[bird_name] = errors
 
@@ -272,8 +306,8 @@ def compare_classifiers(dataset = None, model_dic = None, print_summary = True):
         print("Type 2 errors (Noise errors) : ", error_dic["type2_amount"])
         print("Type 3 errors (Skip errors)  : ", error_dic["type3_amount"])
         print("Type 4 errors (Split errors) : ", error_dic["type4_amount"],"\n")
-        print("Mean accuracy: " + str(np.mean(error_dic['accuracy_mean'])))
-        print("Mean std of accuracy: " + str(np.mean(error_dic['accuracy_std'])))
+        for metric in metrics:
+            print(metric + ": " + str(np.mean(error_dic[metric])))
         print()
 
     print()

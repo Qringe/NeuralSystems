@@ -76,22 +76,34 @@ def train_SVM(X,y,model_name):
 ##########################################################################################################################
 # CNN stuff
 
-def wrap_cnn(cnn, mode = "for_spectograms"):
+def wrap_cnn(cnn, mode = "for_spectograms", normalize_input = True):
     """
     mode has to be one of ["for_spectograms", "for_windows"]
     """
+    # Check if the input is just a wrapper function or the real cnn
+    if hasattr(cnn,"cnn"):
+        real_cnn = cnn.cnn
+    else:
+        real_cnn = cnn
+
     def window_wrapper(X):
-            X = torch.reshape(normalize(torch.tensor(X), mean=cnn.mean, std=cnn.std),(-1,1,128,cnn.wnd_sz)).to(device)
-            pred = cnn(X)
-            return torch.argmax(pred, dim=1)
+        if normalize_input:
+            X = normalize(torch.tensor(X), mean=real_cnn.mean, std=real_cnn.std)
+        X = torch.reshape(X,(-1,1,128,real_cnn.wnd_sz)).to(device)
+        pred = real_cnn(X)
+        return torch.argmax(pred, dim=1)
 
     def spectogram_wrapper(spectogram, idx):
-        return predict_syllables_CNN(spectogram, idx, window_wrapper, wnd_sz=cnn.wnd_sz,
-                feature_extraction=cnn.feature_extraction)
+        return predict_syllables_CNN(spectogram, idx, window_wrapper, wnd_sz=real_cnn.wnd_sz,
+                feature_extraction=real_cnn.feature_extraction)
     
     if mode == "for_windows":
+        window_wrapper.is_wrapped = "for_windows"
+        window_wrapper.cnn = real_cnn
         return window_wrapper
     elif mode == "for_spectograms":
+        spectogram_wrapper.is_wrapped = "for_spectograms"
+        spectogram_wrapper.cnn = real_cnn
         return spectogram_wrapper
     else:
         raise Exception(f"The mode '{mode}' does not exist! Please choose from ['for_spectograms', 'for_windows']")
@@ -114,15 +126,15 @@ def predict_syllables_CNN(X,idx_spectogram,cnn,wnd_sz,feature_extraction):
     is_on.extend(y_pred)
     is_on.extend(w*[0])
     
-    _, peaks_dict = find_peaks(is_on, plateau_size=[5,200])
+    _, peaks_dict = find_peaks(is_on, plateau_size=[5,20000])
     le = peaks_dict['left_edges']
     re = peaks_dict['right_edges']
     return_tuples = [(a,b,idx_spectogram) for a,b in zip(le,re)]
     return return_tuples
 
-def train_CNN(datasets,model_name, feature_extraction=False):
+def train_CNN(datasets,model_name, feature_extraction=False, normalize_input = True):
     # - Create data loader
-    dataloader = BirdDataLoader(datasets['train'], datasets['validation'], datasets['test'])
+    dataloader = BirdDataLoader(datasets['train'], datasets['validation'], datasets['test'], normalize_input = normalize_input)
     
     # - Create data loader test
     data_loader_test = dataloader.get_data_loader(
@@ -181,7 +193,7 @@ def train_CNN(datasets,model_name, feature_extraction=False):
                 "wnd_sz": wnd_sz,
                 "feature_extraction": feature_extraction}, path.join(base,model_path + model_name+".data"))
 
-    return wrap_cnn(cnn, mode="for_windows")
+    return wrap_cnn(cnn, mode="for_windows", normalize_input = normalize_input)
 
 def evaluate_model_cnn(cnn, data_loader):
     cnn.eval()
@@ -229,7 +241,11 @@ class Net(nn.Module):
         # Changed 10 to 2
         self.fc3 = nn.Linear(84, 2)
 
+        # This is useful later to check whether there is a wrapper around the rnn
+        self.is_wrapped = "not_wrapped"
+
     def forward(self, x):
+        x = x.to(device, dtype=torch.float)
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
         x = x.view(-1, np.prod(x.shape[1:]))
@@ -253,23 +269,35 @@ def get_CNN_architecture(wnd_sz):
 ##########################################################################################################################
 # RNN stuff
 
-def wrap_rnn(rnn, mode = "for_spectograms"):
+def wrap_rnn(rnn, mode = "for_spectograms", normalize_input = True):
     """
     mode has to be one of ["for_spectograms", "for_windows"]
     """
+    # Check if the input rnn is the real rnn or just a wrapper function
+    if hasattr(rnn,"rnn"):
+        real_rnn = rnn.rnn
+    else:
+        real_rnn = rnn
+
     def window_wrapper(X):
-        X = torch.reshape(normalize(torch.tensor(X), mean=rnn.mean, std=rnn.std),(-1,128,rnn.wnd_sz)).to(device)
+        if normalize_input:
+            X = normalize(torch.tensor(X), mean=real_rnn.mean, std=real_rnn.std)
+        X = torch.reshape(X,(-1,128,real_rnn.wnd_sz)).to(device)
         X = torch.transpose(torch.transpose(X,1,2),0,1)
-        pred = rnn(X)
+        pred = real_rnn(X)
         return torch.argmax(pred, dim=1)
 
     def spectogram_wrapper(spectogram, idx):
-        return predict_syllables_RNN(spectogram, idx, window_wrapper, wnd_sz=rnn.wnd_sz,
-                feature_extraction=rnn.feature_extraction)
+        return predict_syllables_RNN(spectogram, idx, window_wrapper, wnd_sz=real_rnn.wnd_sz,
+                feature_extraction=real_rnn.feature_extraction)
     
     if mode == "for_windows":
+        window_wrapper.is_wrapped = "for_windows"
+        window_wrapper.rnn = real_rnn
         return window_wrapper
     elif mode == "for_spectograms":
+        spectogram_wrapper.is_wrapped = "for_spectograms"
+        spectogram_wrapper.rnn = real_rnn
         return spectogram_wrapper
     else:
         raise Exception(f"The mode '{mode}' does not exist! Please choose from ['for_spectograms', 'for_windows']")
@@ -294,17 +322,17 @@ def predict_syllables_RNN(X,idx_spectogram,rnn,wnd_sz,feature_extraction):
     is_on.extend(y_pred)
     is_on.extend(w*[0])
     
-    _, peaks_dict = find_peaks(is_on, plateau_size=[5,200])
+    _, peaks_dict = find_peaks(is_on, plateau_size=[5,20000])
     le = peaks_dict['left_edges']
     re = peaks_dict['right_edges']
     return_tuples = [(a,b,idx_spectogram) for a,b in zip(le,re)]
     return return_tuples
 
-def train_RNN(datasets,model_name,network_type="rnn", hidden_size = 100, num_layers=1, feature_extraction = False):
+def train_RNN(datasets,model_name,network_type="rnn", hidden_size = 100, num_layers=1, feature_extraction = False, normalize_input = True):
     
     # Create data loader
     # The parameter 'network_type' always needs to be 'rnn'!
-    dataloader = BirdDataLoader(datasets['train'], datasets['validation'], datasets['test'], network_type="rnn") 
+    dataloader = BirdDataLoader(datasets['train'], datasets['validation'], datasets['test'], network_type="rnn", normalize_input = normalize_input) 
 
     # Create data loader test
     data_loader_test = dataloader.get_data_loader(
@@ -375,7 +403,7 @@ def train_RNN(datasets,model_name,network_type="rnn", hidden_size = 100, num_lay
                 "wnd_sz": wnd_sz,
                 "feature_extraction": feature_extraction}, path.join(base,model_path+model_name+".data"))
 
-    return wrap_rnn(rnn, mode="for_windows")
+    return wrap_rnn(rnn, mode="for_windows", normalize_input = normalize_input)
 
 def rnn_train_step(data, target, rnn, optimizer, device):
     optimizer.zero_grad()
@@ -430,23 +458,27 @@ class RNN(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
 
+        # This is useful later to check whether there is a wrapper around the rnn
+        self.is_wrapped = "not_wrapped"
+
         if network_type == "rnn":
-            self.rnn = nn.RNN(input_size=self.input_size, hidden_size=self.hidden_size, num_layers=self.num_layers)
+            self.rnn_cell = nn.RNN(input_size=self.input_size, hidden_size=self.hidden_size, num_layers=self.num_layers)
         elif network_type == "lstm":
-            self.rnn = nn.LSTM(input_size=self.input_size, hidden_size=self.hidden_size, num_layers=self.num_layers)
+            self.rnn_cell = nn.LSTM(input_size=self.input_size, hidden_size=self.hidden_size, num_layers=self.num_layers)
         elif network_type == "gru":
-            self.rnn = nn.GRU(input_size=self.input_size, hidden_size=self.hidden_size, num_layers=self.num_layers)
+            self.rnn_cell = nn.GRU(input_size=self.input_size, hidden_size=self.hidden_size, num_layers=self.num_layers)
 
         self.output = nn.Linear(in_features=self.hidden_size, out_features=2)
 
     def forward(self, input):
+        input = input.to(device, dtype=torch.float)
         hidden = self.init_hidden(input.shape[1])
 
         if self.network_type == "lstm":
-            rnn_output, hidden_new = self.rnn(input)
+            rnn_output, hidden_new = self.rnn_cell(input)
             output = self.output(hidden_new[0])
         else:
-            rnn_output, hidden_new = self.rnn(input, hidden)
+            rnn_output, hidden_new = self.rnn_cell(input, hidden)
             output = self.output(hidden_new)
 
         #print(output.shape)
