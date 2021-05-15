@@ -5,13 +5,21 @@ import matplotlib
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 from joblib import dump, load
+from copy import deepcopy
 
 import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
 
-from utils import BirdDataLoader, normalize, data_path, model_path, device
+from utils import (
+    BirdDataLoader, normalize,
+    data_path, model_path,
+    device, load_bird_data,
+    extract_labelled_spectograms,
+    train_test_split, create_windows,
+    flatten_windows_dic
+)
 
 ##########################################################################################################################
 # Overview of this file: 
@@ -194,6 +202,110 @@ def train_CNN(datasets,model_name, feature_extraction=False, normalize_input = T
                 "feature_extraction": feature_extraction}, path.join(base,model_path + model_name+".data"))
 
     return wrap_cnn(cnn, mode="for_windows", normalize_input = normalize_input)
+
+def get_transfer_learning_models(
+    bird_names,
+    base_model,
+    arch,
+    wnd_sz,
+    limit,
+    retrain_layers=4,
+):
+    """
+    bird_names: list of birdnames in g17y2,g19o10,g4p5,R3428
+    base_model: A base model to refine
+    arch: str name of the architecture used for storing the model
+    wnd_sz: int Window size
+    retrain_layers: int Number of layers to be re-trained
+    """
+    # - Dic to store the models
+    base = path.dirname(path.abspath(__file__))
+    output_models = {}
+
+    # Load the data and get all labelled spectograms
+    bird_data = load_bird_data(names = bird_names)
+    data_labelled, _ = extract_labelled_spectograms(bird_data)
+
+    # Perform a train-validation-test split
+    data_train, data_test = train_test_split(bird_data = data_labelled, configs = 0.33, seed = 42)
+    data_val, data_test = train_test_split(bird_data = data_test, configs = 0.5, seed = 42)
+
+    # Extract the windows from the spectograms
+    windows_train, _ = create_windows(bird_data = data_train, wnd_sizes = wnd_sz, limits = limit, on_fracs = 0.5, dt = 5, seed = 42)
+    windows_val, _ = create_windows(bird_data = data_val, wnd_sizes = wnd_sz, limits = int(limit/2), on_fracs = 0.5, dt = 5, seed = 42)
+    windows_test, _ = create_windows(bird_data = data_test, wnd_sizes = wnd_sz, limits = int(limit/2), on_fracs = 0.5, dt = 5, seed = 42)
+
+    # - Iterate through every bird for every window size
+    for bird_name in bird_names:
+        print("Start training for bird ", bird_name)
+        # - file name
+        network_name = "%s_wnd_sz_%s_transfer_bird_%s.model" % (arch,wnd_sz,bird_name)
+        network_path = path.join(base, model_path+network_name)
+
+        cnn_transfer = load_cnn(network_path, wnd_sz)
+        if cnn_transfer == None:
+
+            X_train, y_train = windows_train[wnd_sz][bird_name]['X'], windows_train[wnd_sz][bird_name]['y']
+            X_val, y_val = windows_val[wnd_sz][bird_name]['X'], windows_val[wnd_sz][bird_name]['y']
+            X_test, y_test = windows_test[wnd_sz][bird_name]['X'], windows_test[wnd_sz][bird_name]['y']
+
+            # - Create data loader
+            dataloader = BirdDataLoader((X_train, y_train), (X_val, y_val), (X_test, y_test))
+            
+            # - Create data loader test
+            data_loader_test = dataloader.get_data_loader(
+                dset="test", shuffle=True, num_workers=4, batch_size=64
+            )
+            cnn_transfer = deepcopy(base_model)
+            cnn_transfer.train()
+            cnn_transfer.set_data(dataloader.mean, dataloader.std, wnd_sz, False) # use_feature_extraction
+            data_loader_train = dataloader.get_data_loader(
+                dset="train", shuffle=True, num_workers=4, batch_size=64
+            )
+            data_loader_val = dataloader.get_data_loader(
+                dset="val", shuffle=True, num_workers=4, batch_size=64
+            )
+            parameters = [p for p in cnn_transfer.children()]
+            for parameter in parameters:
+                parameter.requires_grad = False
+            for parameter in parameters[-retrain_layers:]:
+                parameter.requires_grad = True
+            print("Retraining ", [x[0] for x in cnn_transfer.named_parameters()][-retrain_layers:])
+            optim = torch.optim.Adam(cnn_transfer.parameters(), lr=1e-4)
+            n_epochs = 10
+            best_val_acc = -np.inf
+            for n in range(n_epochs):
+                for idx, (data, target) in enumerate(data_loader_train):
+                    data, target = data.to(device), target.to(device)  # GPU
+                    output = cnn_transfer(data)
+                    optim.zero_grad()
+                    loss = F.cross_entropy(output, target)
+                    if idx % 100 == 0:
+                        print(f"Epoch {n} Loss {float(loss)}")
+                    loss.backward()
+                    optim.step()
+
+                # - Do evaluation
+                val_acc = evaluate_model_cnn(cnn_transfer, data_loader_val)
+                print(f"Validation accuracy is {val_acc}")
+                if val_acc > best_val_acc:
+                    best_val_acc = val_acc
+                    torch.save(cnn_transfer.state_dict(), network_path)
+        
+            test_acc = evaluate_model_cnn(cnn_transfer, data_loader_test)
+            print(f"Bird {bird_name} Test acc. {test_acc}")
+            cnn_transfer.eval()
+
+            # Save the data
+            torch.save({"mean": dataloader.mean, 
+                        "std": dataloader.std,
+                        "wnd_sz": wnd_sz,
+                        "feature_extraction": False}, path.join(base,model_path + network_name+".data"))
+
+        output_models[bird_name] = wrap_cnn(cnn_transfer, mode="for_windows")
+    
+    return output_models
+    
 
 def evaluate_model_cnn(cnn, data_loader):
     cnn.eval()
