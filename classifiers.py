@@ -97,7 +97,7 @@ def wrap_cnn(cnn, mode = "for_spectograms", normalize_input = True):
     def window_wrapper(X):
         if normalize_input:
             X = normalize(torch.tensor(X), mean=real_cnn.mean, std=real_cnn.std)
-        X = torch.reshape(X,(-1,1,128,real_cnn.wnd_sz)).to(device)
+        X = torch.reshape(torch.tensor(X),(-1,1,128,real_cnn.wnd_sz)).to(device)
         pred = real_cnn(X)
         return torch.argmax(pred, dim=1)
 
@@ -305,7 +305,6 @@ def get_transfer_learning_models(
         output_models[bird_name] = wrap_cnn(cnn_transfer, mode="for_windows")
     
     return output_models
-    
 
 def evaluate_model_cnn(cnn, data_loader):
     cnn.eval()
@@ -394,7 +393,7 @@ def wrap_rnn(rnn, mode = "for_spectograms", normalize_input = True):
     def window_wrapper(X):
         if normalize_input:
             X = normalize(torch.tensor(X), mean=real_rnn.mean, std=real_rnn.std)
-        X = torch.reshape(X,(-1,128,real_rnn.wnd_sz)).to(device)
+        X = torch.reshape(torch.tensor(X),(-1,128,real_rnn.wnd_sz)).to(device)
         X = torch.transpose(torch.transpose(X,1,2),0,1)
         pred = real_rnn(X)
         return torch.argmax(pred, dim=1)

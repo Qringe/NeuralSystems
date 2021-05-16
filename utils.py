@@ -816,8 +816,8 @@ class BirdDataLoader:
     def __init__(self, train, validation, test, network_type = "cnn", normalize_input = True):
         # network type can be either 'cnn' or 'rnn'
 
-        self.X_train, self.X_val, self.X_test = np.array(train[0]), np.array(validation[0]), np.array(test[0])
-        self.y_train, self.y_val, self.y_test = np.array(train[1]), np.array(validation[1]), np.array(test[1])       
+        self.X_train, self.X_val, self.X_test = torch.tensor(train[0]), torch.tensor(validation[0]), torch.tensor(test[0])
+        self.y_train, self.y_val, self.y_test = torch.tensor(train[1]), torch.tensor(validation[1]), torch.tensor(test[1])       
 
         self.wnd_sz = self.X_train.shape[2]
         self.nfreq = self.X_train.shape[1]
