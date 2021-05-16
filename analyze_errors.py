@@ -70,37 +70,6 @@ def predict_dataset(model, spectograms, ground_truth_tuples, name, read_cache=Tr
 
     return results
 
-def predict_whole_dataset(model, name, read_cache=True, write_cache=True):
-    """
-    NOTE: THIS FUNCTION IS OUTDATED!
-    Loads the whole dataset and makes predictions. 
-    
-    If 'read_cache==True', then the
-    function first checks, whether the results have already been computed (i.e.
-    whether a file with name 'name' already exists) and if so, loads the data.
-
-    If 'write_cache==True' then the function will store the computed results.
-    """
-    base = path.dirname(path.abspath(__file__))
-    p = path.join(base,data_path + f"predictions_{name}.data")
-
-    if read_cache and path.isfile(p):
-        return load(p)
-
-    # Download the data if necessary
-    download()
-    
-    # Load the whole data
-    Xs_train = loadmat(path.join(base, data_path + "train_dataset/spectrograms/g17y2_train.mat"))["Xs_train"][0]
-    annotations = loadmat(path.join(base, data_path + "train_dataset/annotations/annotations_g17y2_train.mat"))["annotations_train"][0]
-
-    SETindex = annotations["y"][0]["SETindex"][0][0][0]-1
-    ons = annotations["y"][0]["onset_columns"][0][0][0]-1
-    offs = annotations["y"][0]["offset_columns"][0][0][0]-1
-    ground_truth_tuples = [(a,b,c) for a,b,c in zip(ons,offs,SETindex)]
-
-    return predict_dataset(model, Xs_train, ground_truth_tuples, name)    
-
 def analyze_errors(predictions):
     """
     This function compares the vocal/non-vocal predictions of a model to the true
@@ -256,6 +225,7 @@ def compare_classifiers(dataset = None, model_dic = None, print_summary = True):
     # If dataset is not specified, use total dataset over all birds
     if dataset == None:
         dataset = load_bird_data()
+        dataset, _ = extract_labelled_spectograms(dataset)
 
     bird_names = [key for key in list(dataset.keys()) if type(key) == np.str_ or type(key) == str]
 
