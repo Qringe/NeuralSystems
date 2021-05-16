@@ -302,7 +302,7 @@ def get_transfer_learning_models(
                         "wnd_sz": wnd_sz,
                         "feature_extraction": False}, path.join(base,model_path + network_name+".data"))
 
-        output_models[bird_name] = wrap_cnn(cnn_transfer, mode="for_windows")
+        output_models[arch+bird_name] = cnn_transfer
     
     return output_models
 
@@ -321,7 +321,7 @@ def evaluate_model_cnn(cnn, data_loader):
 def load_cnn(path, wnd_sz):
     if os.path.isfile(path):
         cnn = get_CNN_architecture(wnd_sz)
-        cnn.load_state_dict(torch.load(path))
+        cnn.load_state_dict(torch.load(path, map_location=device))
         data = torch.load(path + ".data")
         cnn.set_data(data['mean'], data['std'], data['wnd_sz'], data['feature_extraction'])
         cnn.eval()
@@ -546,7 +546,7 @@ def evaluate_model_rnn(rnn, data_loader):
 def load_rnn(path, network_type, nfreq = 128, hidden_size=100, num_layers = 1, device="cpu"):
     if os.path.isfile(path):
         rnn = get_RNN_architecture(network_type, nfreq, hidden_size, num_layers, device)
-        rnn.load_state_dict(torch.load(path))
+        rnn.load_state_dict(torch.load(path, map_location=device))
         data = torch.load(path + ".data")
         rnn.set_data(data['mean'], data['std'], data['wnd_sz'], data['feature_extraction'])
         rnn.eval()

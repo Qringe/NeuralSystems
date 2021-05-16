@@ -25,7 +25,10 @@ from classifiers import (
     train_CNN, predict_syllables_CNN, load_cnn, wrap_cnn,
 
     # For the rnn
-    train_RNN, predict_syllables_RNN, load_rnn, wrap_rnn
+    train_RNN, predict_syllables_RNN, load_rnn, wrap_rnn,
+
+    # For transfer learning
+    get_transfer_learning_models
 )
 
 def predict_dataset(model, spectograms, ground_truth_tuples, name, read_cache=True, write_cache=True):
@@ -375,15 +378,18 @@ if __name__ == "__main__":
 
     # Load the CNN
     cnn = load_cnn(cnn_path, wnd_sz)
-    cnn = wrap_cnn(cnn, mode="for_spectograms")
 
-    # Load the RNN
-    rnn = load_rnn(rnn_path, network_type, hidden_size=hidden_size, num_layers = num_layers, device=device)
-    rnn = wrap_rnn(rnn, mode="for_spectograms")
+    transfer_model_dic = get_transfer_learning_models(
+        bird_names=["g19o10","R3428"],
+        base_model=cnn,
+        arch="CNN",
+        wnd_sz=wnd_sz,
+        limit=limit,
+        retrain_layers=4)
 
-    model_dic = {
-        "cnn_v01" : cnn,
-        "rnn_v01" : rnn
-    }
+    transfer_model_dic["base_CNN"] = cnn
 
-    compare_classifiers(dataset = None, model_dic = model_dic, print_summary = True)
+    for key in transfer_model_dic:
+        transfer_model_dic[key] = wrap_cnn(transfer_model_dic[key], mode="for_spectograms")
+
+    compare_classifiers(dataset = None, model_dic = transfer_model_dic, print_summary = True)
