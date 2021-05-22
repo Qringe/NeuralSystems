@@ -2,47 +2,43 @@ import os.path as path
 import os
 import numpy as np
 import matplotlib
-import matplotlib.pyplot as plt
 from scipy.io import loadmat
+from scipy.interpolate import interp2d
 from joblib import dump, load
 from hashlib import sha256
 import random
 
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.svm import SVC
-from sklearn.model_selection import train_test_split
-
 import torch
-from torch import nn
-import torch.nn.functional as F
 from torch.utils.data import TensorDataset, DataLoader
 
 ##########################################################################################################################
-# Overview of this file: 
-## Global parameters
-## General functions
-## Data-handling functions
+# Overview of this file:
+# Global parameters
+# General functions
+# Data-handling functions
 
 ##########################################################################################################################
 # Global parameters
 
 # Check if GPU is available
-#device = "cuda" if torch.cuda.is_available() else "cpu"
-device = "cpu"
+# DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = "cpu"
 
 # The list of available bird data
-bird_names = ["g17y2", "g19o10", "g4p5", "R3428"]
+BIRD_NAMES = ["g17y2", "g19o10", "g4p5", "R3428"]
 
 # The data path and model path
-data_path = "Data/"
-dataset_path = data_path + "Datasets/"
-bird_data_path = data_path + "Bird_Data/"
-model_path = "Models/"
-predictions_path = data_path + "Predictions/"
+DATA_PATH = "Data/"
+DATASET_PATH = DATA_PATH + "Datasets/"
+BIRD_DATA_PATH = DATA_PATH + "Bird_Data/"
+MODEL_PATH = "Models/"
+PREDICTIONS_PATH = DATA_PATH + "Predictions/"
+
+SAMPLING_RATE = 32000
 
 ##########################################################################################################################
 # General functions
+
 
 def tuples2vector(meta_tuples):
     """
@@ -77,13 +73,14 @@ def tuples2vector(meta_tuples):
         for syllable in tuples:
             on, off, idx = syllable[:3]
             temp_vec[on:off+1] = 1
-        
+
         # Append the output vector with the output from this spectogram
         output_vec.extend(temp_vec.tolist())
 
     return output_vec
 
-def score_predictions(y_true, y_pred, tolerance = 4):
+
+def score_predictions(y_true, y_pred, tolerance=4):
     """
     The function used to score the predictions for a spectogram
     """
@@ -99,12 +96,14 @@ def score_predictions(y_true, y_pred, tolerance = 4):
     if len(spec_ids_pred) > 1 or len(spec_ids_true) > 1:
         print("The true labels contain the spectograms = ", spec_ids_true)
         print("The predicted labels contain the spectograms = ", spec_ids_pred)
-        raise Exception("The function 'score_predictions' can only score tuples from a single spectogram. You provided tuples from multiple spectograms!")
-    
+        raise Exception(
+            "The function 'score_predictions' can only score tuples from a single spectogram." +
+            "You provided tuples from multiple spectograms!")
+
     TP = 0
     FP = 0
     tmp = 0
-    p_ob_pon, p_ob_poff, p_ob_non, p_ob_noff = [], [], [], [] #just for observing the results
+    p_ob_pon, p_ob_poff, p_ob_non, p_ob_noff = [], [], [], []  # just for observing the results
     for i in range(len(p_onset)):
         index = np.zeros(2 * tolerance + 1)
         for j in range(-tolerance, tolerance + 1):
@@ -142,7 +141,7 @@ def score_predictions(y_true, y_pred, tolerance = 4):
     return acc_rate
 
 
-def hash_spectograms(spectograms, ndigits = 6):
+def hash_spectograms(spectograms, ndigits=6):
     """
     Just a small deterministic hashfunction. This function is used to identify files.
     The parameter 'ndigits' denotes the amount of digits of the hash which shall be returned
@@ -153,43 +152,42 @@ def hash_spectograms(spectograms, ndigits = 6):
     return sha256(h.encode('utf-8')).hexdigest()[-ndigits:]
 
 
-def reverse_on_off(tuples,T):
-    reversed_tuples =  []
+def reverse_on_off(tuples, T):
+    reversed_tuples = []
     next_on = 0
     if tuples == []:
         return []
-    for on,off,idx in tuples:
-        reversed_tuples.append((next_on,on,idx))
+    for on, off, idx in tuples:
+        reversed_tuples.append((next_on, on, idx))
         next_on = off
-    reversed_tuples.append((next_on,T-1,idx))
-    reversed_tuples = [(a,b,c) for (a,b,c) in reversed_tuples if not a == b]
+    reversed_tuples.append((next_on, T-1, idx))
+    reversed_tuples = [(a, b, c) for (a, b, c) in reversed_tuples if not a == b]
     return reversed_tuples
+
 
 def extract_features(X):
     X = np.array(X, dtype=np.float32)
     return [np.mean(X), np.std(X), np.median(X), np.mean(np.abs(X)), np.max(X)-np.min(X)]
 
+
 def plot_spectogram(ax, X, tuples_predicted, tuples_gt):
-    maxfreq = 10
-    nonoverlap = 128
-    fs = 32000
-    ax.imshow(np.flip(X, axis = 0))
-    xt = np.arange(X.shape[1]*nonoverlap/fs)
+    ax.imshow(np.flip(X, axis=0))
     for t_p in tuples_predicted:
-        ax.add_patch(matplotlib.patches.Rectangle((t_p[0], 0), t_p[1]-t_p[0], 15,linewidth=2,
-                edgecolor='r',
-                facecolor='r',                                     
-                fill = True)
-        )
+        ax.add_patch(matplotlib.patches.Rectangle((t_p[0], 0), t_p[1]-t_p[0], 15, linewidth=2,
+                                                  edgecolor='r',
+                                                  facecolor='r',
+                                                  fill=True)
+                     )
     for t_gt in tuples_gt:
-        ax.add_patch(matplotlib.patches.Rectangle((t_gt[0], 30), t_gt[1]-t_gt[0], 15,linewidth=2,
-                edgecolor='g',
-                facecolor='g',                                     
-                fill = True)
-        )
+        ax.add_patch(matplotlib.patches.Rectangle((t_gt[0], 30), t_gt[1]-t_gt[0], 15, linewidth=2,
+                                                  edgecolor='g',
+                                                  facecolor='g',
+                                                  fill=True)
+                     )
+
 
 def normalize(X, mean=None, std=None):
-    if not (mean == None):
+    if not (mean is None):
         return (X - mean) / std
     else:
         return (X - torch.mean(X)) / torch.std(X)
@@ -197,30 +195,32 @@ def normalize(X, mean=None, std=None):
 ##########################################################################################################################
 # Data-handling functions
 
+
 def download():
     """
     Checks if the data files are present and otherwise downloads them
     """
     base = path.dirname(path.abspath(__file__))
-    p = path.join(base,data_path + "train_dataset_new.zip")
+    p = path.join(base, DATA_PATH + "train_dataset_new.zip")
 
     # Remove the old file and directory if it is still present
-    if path.isfile(path.join(base,data_path + "train_dataset.zip")):
+    if path.isfile(path.join(base, DATA_PATH + "train_dataset.zip")):
         print("Removing old data")
-        os.system("rm " + data_path + "train_dataset.zip")
-        os.system("rm -r " + data_path + "train_dataset")
+        os.system("rm " + DATA_PATH + "train_dataset.zip")
+        os.system("rm -r " + DATA_PATH + "train_dataset")
 
     # If the data doesn't exist yet, download the zip
     if not path.isfile(p):
         # pip install gdown
         os.system("gdown https://drive.google.com/uc?id=1jQTe1L2UKtnuTiE-768EfhhFW5O8_p33")
-        os.system("mv train_dataset.zip " + data_path + "train_dataset_new.zip")
-        os.system("unzip "+ data_path + "train_dataset_new.zip -d " + data_path)
+        os.system("mv train_dataset.zip " + DATA_PATH + "train_dataset_new.zip")
+        os.system("unzip " + DATA_PATH + "train_dataset_new.zip -d " + DATA_PATH)
 
-def load_bird_data(names = None, indices = None, drop_unlabelled = False):
+
+def load_bird_data(names=None, indices=None, drop_unlabelled=False, resample=SAMPLING_RATE):
     """
     Loads the data of one or several birds. The parameter 'names' can be either a list
-    containing a subset from the following list ["g17y2", "g19o10", "g4p5", "R3428"], or 
+    containing a subset from the following list ["g17y2", "g19o10", "g4p5", "R3428"], or
     just a single name from the list above, in case you would only like to load the data
     of one bird.
 
@@ -231,21 +231,25 @@ def load_bird_data(names = None, indices = None, drop_unlabelled = False):
         3 -> R3428
     As for 'names' you can specify this parameter either as a list or a single integer
 
-    The parameter 'names' has priority over the parameter 'indices'. If you specify both 
+    The parameter 'names' has priority over the parameter 'indices'. If you specify both
     parameters, then only 'names' will be read.
+
+    The parameter 'resample' can either have the boolean value 'False', indicating that no spectograms
+    should be resampled, or an integer value, in which case the spectograms get resampled to the sample rate
+    indicated by 'resample'
 
     If you don't specify any parameters, the data of all birds will be returned.
     """
 
-    bird_names_np = np.array(bird_names)
+    bird_names_np = np.array(BIRD_NAMES)
 
     # Choose from 'bird_names_np' all birds whose data shall be loaded
-    if names != None:
+    if names is not None:
         if type(names) != list:
             birds = [names]
         else:
             birds = names
-    elif indices != None:
+    elif indices is not None:
         birds = bird_names_np[indices]
     else:
         birds = bird_names_np
@@ -256,39 +260,45 @@ def load_bird_data(names = None, indices = None, drop_unlabelled = False):
 
     # Iterate through all selected birds
     for bird in birds:
-        Xs_train = loadmat(path.join(base,data_path + f"train_dataset/spectrograms/{bird}_train.mat"))["Xs_train"][0]
-        annotations = loadmat(path.join(base,data_path + f"train_dataset/annotations/annotations_{bird}_train.mat"))["annotations_train"][0]
+        Xs_train = loadmat(path.join(base, DATA_PATH + f"train_dataset/spectrograms/{bird}_train.mat"))["Xs_train"][0]
+        annotations = loadmat(
+            path.join(base, DATA_PATH + f"train_dataset/annotations/annotations_{bird}_train.mat"))["annotations_train"][0]
 
         SETindex = annotations["y"][0]["SETindex"][0][0][0]-1
         scanrate = annotations['scanrate'][0][0][0]
-        if ('SETindex_labelled','O') in eval(str(annotations.dtype)):
-            labelled_specs = annotations['SETindex_labelled'][0][0] -1
+        if ('SETindex_labelled', 'O') in eval(str(annotations.dtype)):
+            labelled_specs = annotations['SETindex_labelled'][0][0] - 1
         else:
             labelled_specs = list(range(len(Xs_train)))
         ons = annotations["y"][0]["onset_columns"][0][0][0]-1
         offs = annotations["y"][0]["offset_columns"][0][0][0]-1
-        ground_truth_tuples = [(a,b,c,bird) for a,b,c in zip(ons,offs,SETindex)]
-
-        # TODO: Maybe handle different scanrates?
+        ground_truth_tuples = [(a, b, c, bird) for a, b, c in zip(ons, offs, SETindex)]
 
         # NOTE: The 'order = C' is required to make the hash function 'hash_spectograms' work properly!
         for i in range(len(Xs_train)):
             Xs_train[i] = Xs_train[i].copy(order='C')
             Xs_train[i] = Xs_train[i].astype(np.float)
+
         current_data = {
             "Xs_train": Xs_train,
-            "tuples" : ground_truth_tuples,
-            "ids_labelled" : labelled_specs
+            "tuples": ground_truth_tuples,
+            "ids_labelled": labelled_specs
         }
 
         # The data can be either accessed using the string name of the bird, or the index
         bird_data[bird] = current_data
 
+        # If the scanrate differes from 'SAMPLING_RATE' and the parameter 'resample' is not 'False'
+        # resample the data to 'SAMPLING_RATE'
+        if resample is not False and type(resample) == int and scanrate != SAMPLING_RATE:
+            bird_data = resample_data(bird_data, bird_names=[bird], old_frequencies=scanrate,
+                                      new_frequencies=SAMPLING_RATE, name="on_load")
+
     if drop_unlabelled:
-        labelled_data, unlabelled_data = extract_labelled_spectograms(bird_data)
-        return labelled_data
+        bird_data, unlabelled_data = extract_labelled_spectograms(bird_data)
 
     return bird_data
+
 
 def extract_labelled_spectograms(bird_data):
     """
@@ -330,7 +340,7 @@ def extract_labelled_spectograms(bird_data):
 
         # Extract all labelled data
         bird_data_labelled[bird_name]["Xs_train"] = Xs_train_whole[ids_labelled]
-        tuples_reduced = list(map(lambda tup: (tup[0],tup[1], label_mapper[tup[2]], tup[3]), tuples_whole))
+        tuples_reduced = list(map(lambda tup: (tup[0], tup[1], label_mapper[tup[2]], tup[3]), tuples_whole))
         bird_data_labelled[bird_name]["tuples"] = tuples_reduced
 
         # Extract all unlabelled data
@@ -339,12 +349,13 @@ def extract_labelled_spectograms(bird_data):
 
     return bird_data_labelled, bird_data_unlabelled
 
-def train_test_split(bird_data, configs = None, seed = None):
+
+def train_test_split(bird_data, configs=None, seed=None):
     """
-    Takes as input a dictionary containing the data of different birds (as returned by the function 
-    'extract_labelled_spectograms') and uses the configuration dictionary 'configs' to split each of the items of the 
-    'bird_data' dict into a training and test set. 
-    
+    Takes as input a dictionary containing the data of different birds (as returned by the function
+    'extract_labelled_spectograms') and uses the configuration dictionary 'configs' to split each of the items of the
+    'bird_data' dict into a training and test set.
+
     'bird_data' should have the form:
         {
             "bird_name1": {"Xs_train" : Xs_train, "tuples" : ground_truth_tuples},
@@ -365,26 +376,26 @@ def train_test_split(bird_data, configs = None, seed = None):
                     "bird_name2": freq2 or tot1,
                     ...
                 }
-            where the keys are the bird names and each key either contains an int 'tot' denoting the total number of windows 
-            which will be put into the test set for this bird, or a float 0 <= f <= 1 denoting the fraction of windows which 
+            where the keys are the bird names and each key either contains an int 'tot' denoting the total number of windows
+            which will be put into the test set for this bird, or a float 0 <= f <= 1 denoting the fraction of windows which
             will be put into the test set for this bird
     """
     bird_data_train = {}
     bird_data_test = {}
 
-    if seed != None and type(seed) == int:
+    if seed is not None and type(seed) == int:
         random.seed(seed)
 
     # Handle configs
-    if configs == None:
+    if configs is None:
         configs = {bird_name: 0.2 for bird_name in bird_data.keys()}
     elif type(configs) == int or type(configs) == float:
         configs = {bird_name: configs for bird_name in bird_data.keys()}
     elif type(configs) == dict:
         pass
     else:
-        raise Exception("The variable 'configs' has the wrong format! Check out the function docstring for an explanation of the format.")
-
+        raise Exception("The variable 'configs' has the wrong format! " +
+                        "Check out the function docstring for an explanation of the format.")
 
     # Iterate over each bird in 'bird_data'
     for bird_name in bird_data.keys():
@@ -408,7 +419,7 @@ def train_test_split(bird_data, configs = None, seed = None):
             raise Exception(f"'test_freq' needs to be non-negative! You provided {test_freq}")
 
         # Get the ids of the train set
-        train_ids = np.delete(ids,test_ids)
+        train_ids = np.delete(ids, test_ids)
 
         # A dictionary which maps the old ids of 'id_list' to a contiguous range 0-len(id_list)
         def build_mapper(id_list):
@@ -423,22 +434,143 @@ def train_test_split(bird_data, configs = None, seed = None):
         bird_data_train[bird_name]["Xs_train"] = Xs_train_whole[train_ids]
         train_mapper = build_mapper(train_ids)
         tuples_train = [t for t in tuples_whole if t[2] in train_ids]
-        tuples_train = list(map(lambda tup: (tup[0],tup[1], train_mapper[tup[2]], tup[3]), tuples_train))
+        tuples_train = list(map(lambda tup: (tup[0], tup[1], train_mapper[tup[2]], tup[3]), tuples_train))
         bird_data_train[bird_name]["tuples"] = tuples_train
 
         # Extract the test data
         bird_data_test[bird_name]["Xs_train"] = Xs_train_whole[test_ids]
         test_mapper = build_mapper(test_ids)
         tuples_test = [t for t in tuples_whole if t[2] in test_ids]
-        tuples_test = list(map(lambda tup: (tup[0],tup[1], test_mapper[tup[2]], tup[3]), tuples_test))
+        tuples_test = list(map(lambda tup: (tup[0], tup[1], test_mapper[tup[2]], tup[3]), tuples_test))
         bird_data_test[bird_name]["tuples"] = tuples_test
 
     return bird_data_train, bird_data_test
 
-def standardize_data(bird_data, coarse_mode = "per_spectogram", fine_mode = "per_row"):
+
+def resample_data(bird_data, bird_names, old_frequencies, new_frequencies, name, kind="cubic", read_cache=True, write_cache=True):
+    """
+    Takes as input a dictionary 'bird_data' containing the data of different birds (as returned by the function 'load_bird_data'),
+    and a list of names 'bird_names'. The data of the birds specified in this list gets then resampled.
+
+    'old_frequencies' can be either an integer or a dictionary. If it is an integer, it represents the old sampling frequency of
+    all birds specified in 'bird_names'. If different birds in 'bird_data' have different old sampling frequencies, you can
+    specify the different sampling frequencies as follows:
+        {
+            "bird_name1": old_frequency1
+            "bird_name2": old_frequency2
+            ...
+        }
+
+    'new_frequencies' can be either an integer or a dictionary. If it is an integer, it represents the new sampling frequency of
+    all birds specified in 'bird_names'. If different birds in 'bird_data' shall have different sampling frequencies, you can
+    specify the different sampling frequencies as follows:
+        {
+            "bird_name1": new_frequency1
+            "bird_name2": new_frequency2
+            ...
+        }
+
+    'name' is used to check whether the spectogram data has already been resampled once.
+
+    'kind' specifies how the 2d interpolation shall be done. This function performs spline interpolation. The parameter 'kind'
+    can set the degree of the splines. Possible values are: ["linear", "cubic", "quintic"]
+
+    If 'read_cache == True', then the
+    function first checks, whether the spectograms have already been resampled once (i.e.
+    whether a file with name 'name' already exists) and if so, loads the data.
+
+    If 'write_cache==True' then the function will store the computed results.
+    """
+    base = path.dirname(path.abspath(__file__))
+
+    # Convert the 'old_frequencies' input to a dictionary if it isn't already a dictionary.
+    if type(old_frequencies) != dict:
+        freq = old_frequencies
+        old_frequencies = {bird_name: freq for bird_name in bird_names}
+
+    # Convert the 'new_frequencies' input to a dictionary if it isn't already a dictionary.
+    if type(new_frequencies) != dict:
+        freq = new_frequencies
+        new_frequencies = {bird_name: freq for bird_name in bird_names}
+
+    # Iterate over all birds whose data should be resampled
+    for bird_name in bird_names:
+        spectograms = bird_data[bird_name]["Xs_train"]
+        tuples = bird_data[bird_name]["tuples"]
+
+        # Check if the data has already been resampled once and if so, load it
+        storage_path = path.join(base, DATASET_PATH + f"resampled_{name}_{bird_name}_hash_{hash_spectograms(spectograms)}.data")
+        if read_cache and path.isfile(storage_path):
+            print("Load cached resampled data of bird ", bird_name)
+            bird_data[bird_name] = load(storage_path)
+            continue
+
+        print("Resampling spectograms of bird ", bird_name)
+
+        old_freq = old_frequencies[bird_name]
+        new_freq = new_frequencies[bird_name]
+
+        new_spectograms = []
+        new_tuples = []
+
+        # Iterate over all spectograms of this bird
+        for index, spectogram in enumerate(spectograms):
+            if index % 20 == 0:
+                print(index, " / ", len(spectograms))
+
+            # Compute the length of the spectogram in seconds
+            rows, cols_old = spectogram.shape
+            seconds = rows * cols_old / old_freq
+
+            # Compute the dimensions of the new spectogram
+            cols_new = round(seconds * new_freq / rows)
+
+            # Compute for each column the corresponding time index
+            old_time_stamps = np.linspace(0, seconds, cols_old)
+
+            # Create the timestamps for the resampled spectogram
+            new_time_stamps = np.linspace(0, seconds, cols_new)
+
+            # Build an interpolation function using the old timestamps and data
+            func = interp2d(x=old_time_stamps, y=list(range(rows)), z=spectogram, kind=kind, copy=False)
+
+            # Get the resampled spectogram values using the interpolation function 'func'
+            resampled_spectogram = func(x=new_time_stamps, y=list(range(rows)))
+
+            new_spectograms.append(resampled_spectogram)
+
+            # Adjust the start and end of the syllable tuples
+            current_tuples = [tup for tup in tuples if tup[2] == index]
+
+            # A function which adjusts the on- and off indices of the tuple and leaves the remaining
+            # entries untouched
+            def resample_tuple(tup, cols_old, cols_new):
+                on = round(tup[0] * (cols_new / cols_old))
+                off = round(tup[1] * (cols_new / cols_old))
+                return (on, off, *tup[2:])
+
+            # Apply this function to all tuples
+            resampled_tuples = [resample_tuple(tup, cols_old, cols_new) for tup in current_tuples]
+
+            new_tuples.extend(resampled_tuples)
+
+        # This is ugly but necessary because the different spectograms have different lengths, so
+        # np.array(new_spectograms) doesn't work
+        for i in range(len(new_spectograms)):
+            bird_data[bird_name]["Xs_train"][i] = new_spectograms[i].copy(order='C')
+        bird_data[bird_name]["tuples"] = new_tuples
+
+        # Store the results, if write_cache = True
+        if write_cache:
+            dump(bird_data[bird_name], storage_path)
+
+    return bird_data
+
+
+def standardize_data(bird_data, coarse_mode="per_spectogram", fine_mode="per_row"):
     """
     Takes as input a dictionary containing the data of different birds (as returned by the function 'load_bird_data') and
-    standardizes the spectograms. The standardization can be either done for each single spectogram (coarse_mode = "per_spectogram")
+    standardizes the spectograms. The standardization can be either done for each spectogram (coarse_mode = "per_spectogram")
     or for each bird (coarse_mode = "per_bird"). Furthermore, you can decide, whether the standardization should be done
     per row (fine_mode = "per_row"), in which case the means and stds are computed per row, or if you want to use just one scalar
     for the mean and std (fine_mode = "scalar"). The two parameters 'coarse_mode' and 'fine_mode' can be combined arbitrarily.
@@ -462,29 +594,30 @@ def standardize_data(bird_data, coarse_mode = "per_spectogram", fine_mode = "per
         specs = bird_data[bird_name]["Xs_train"]
 
         if coarse_mode == "per_bird":
-            temp = np.concatenate(specs,axis = 1)
+            temp = np.concatenate(specs, axis=1)
             if fine_mode == "scalar":
                 means = np.mean(temp)
                 stds = np.std(temp)
             elif fine_mode == "per_row":
-                means = np.mean(temp, axis=1).reshape((specs[0].shape[0],-1))
-                stds = np.std(temp, axis=1).reshape((specs[0].shape[0],-1))
+                means = np.mean(temp, axis=1).reshape((specs[0].shape[0], -1))
+                stds = np.std(temp, axis=1).reshape((specs[0].shape[0], -1))
 
             for i in range(specs.shape[0]):
-                    specs[i] = (specs[i] - means) / stds
+                specs[i] = (specs[i] - means) / stds
 
         elif coarse_mode == "per_spectogram":
             for i in range(specs.shape[0]):
                 if fine_mode == "scalar":
                     specs[i] = (specs[i] - np.mean(specs[i])) / np.std(specs[i])
                 elif fine_mode == "per_row":
-                    means = np.mean(specs[i], axis=1).reshape((specs[i].shape[0],-1))
-                    stds = np.std(specs[i], axis=1).reshape((specs[i].shape[0],-1))
+                    means = np.mean(specs[i], axis=1).reshape((specs[i].shape[0], -1))
+                    stds = np.std(specs[i], axis=1).reshape((specs[i].shape[0], -1))
                     specs[i] = (specs[i] - means) / stds
 
         converted[bird_name]["Xs_train"] = specs
 
     return converted
+
 
 def extract_birds(bird_data, bird_names):
     """
@@ -500,11 +633,14 @@ def extract_birds(bird_data, bird_names):
     # Copy the birds which are specified in bird_names
     for bird_name in bird_names:
         if bird_name not in bird_data.keys():
-            print(f"Warning: The data of bird '{bird_name}' seems to be missing in the provided bird data. It is therefore skipped.")
+            print(
+                f"Warning: The data of bird '{bird_name}' seems to be missing in the provided bird data. " +
+                "It is therefore skipped.")
             continue
         bird_data_new[bird_name] = bird_data[bird_name]
-    
+
     return bird_data_new
+
 
 def compute_max_window_sizes(bird_data, wnd_sz, dt):
     """
@@ -514,10 +650,11 @@ def compute_max_window_sizes(bird_data, wnd_sz, dt):
     result = {}
     for bird_name in bird_data.keys():
         spectograms = bird_data[bird_name]["Xs_train"]
-        total_amount = sum(map(lambda spec: len(range(0,spec.shape[1]-wnd_sz,dt)), spectograms))
+        total_amount = sum(map(lambda spec: len(range(0, spec.shape[1]-wnd_sz, dt)), spectograms))
         result[bird_name] = total_amount
-    
+
     return result
+
 
 def extract_from_spectogram(spectogram, tuples, wnd_sz, dt, feature_extraction):
     """
@@ -526,25 +663,26 @@ def extract_from_spectogram(spectogram, tuples, wnd_sz, dt, feature_extraction):
     amount of on- and off-tuples and finally returns the resulting windows in two separate arrays.
     """
     # Array 'X_on' stores the extracted on-windows and 'X_off' the windows of type off
-    X_on = []; X_off = []
+    X_on = []
+    X_off = []
     w = int(wnd_sz / 2)
-    
+
     # A helper function which extracts a window at a given position (if possible)
     def get_wnd_data(t):
-        l = int(t-w)
-        r = int(t+w)
-        if l < 0 or r >= spectogram.shape[1]:
+        left = int(t-w)
+        right = int(t+w)
+        if left < 0 or right >= spectogram.shape[1]:
             return None
         if feature_extraction:
-            X_tmp = extract_features(spectogram[:,l:r])
+            X_tmp = extract_features(spectogram[:, left:right])
         else:
-            X_tmp = spectogram[:,l:r]
+            X_tmp = spectogram[:, left:right]
         return X_tmp
 
     # "Walk" over the spectogram from left to right, making strides of size 'dt'
-    for t in range(0,spectogram.shape[1],dt):
+    for t in range(0, spectogram.shape[1], dt):
         X_tmp = get_wnd_data(t)
-        if type(X_tmp) == type(None):
+        if isinstance(X_tmp, type(None)):
             continue
         window_is_on = any(map(lambda tup: tup[0] <= t and tup[1] >= t, tuples))
         if window_is_on:
@@ -554,7 +692,8 @@ def extract_from_spectogram(spectogram, tuples, wnd_sz, dt, feature_extraction):
 
     return X_on, X_off
 
-def create_windows(bird_data, wnd_sizes, feature_extraction = False, limits = None,  on_fracs = None, dt = 5, seed = None):
+
+def create_windows(bird_data, wnd_sizes, feature_extraction=False, limits=None,  on_fracs=None, dt=5, seed=None):
     """
     For every window size in 'wnd_sizes' convert the spectograms in the 'bird_data' dictionary to
     a set of windows.
@@ -581,69 +720,71 @@ def create_windows(bird_data, wnd_sizes, feature_extraction = False, limits = No
                     "bird_name2": freq2 or tot1,
                     ...
                 }
-            where the keys are the bird names and each key either contains an int 'tot' denoting the total number of windows 
-            which will be returned for this bird, or a float 0 <= f <= 1 denoting the fraction of windows which will be 
+            where the keys are the bird names and each key either contains an int 'tot' denoting the total number of windows
+            which will be returned for this bird, or a float 0 <= f <= 1 denoting the fraction of windows which will be
             returned for this bird
 
     'on_fracs' can be either (a) an integer, (b) a float, or (c) a dictionary of ints/floats.
-        (a) If 'on_fracs' is an integer 'i', then this function will return exactly 'i' on-windows per bird and the rest of windows
-            will all be off-windows.
-        (b) If 'on_fracs' is a float 0 <= f <= 1, then for each bird, a fraction 'f' of the returned windows will be on-windows while
-            the rest will be off-windows.
+        (a) If 'on_fracs' is an integer 'i', then this function will return exactly 'i' on-windows per bird and the rest of
+        windows will all be off-windows.
+        (b) If 'on_fracs' is a float 0 <= f <= 1, then for each bird, a fraction 'f' of the returned windows will be on-windows
+        while the rest will be off-windows.
         (c) If 'on_fracs' is a dictionary it should have the form:
                 {
                     "bird_name1": freq1 or tot1,
                     "bird_name2": freq2 or tot1,
                     ...
                 }
-            where the keys are the bird names and each key either contains an int 'tot' denoting the total number of windows 
-            which will be on-windows for this bird, or a float 0 <= f <= 1 denoting the fraction of windows which will be 
+            where the keys are the bird names and each key either contains an int 'tot' denoting the total number of windows
+            which will be on-windows for this bird, or a float 0 <= f <= 1 denoting the fraction of windows which will be
             on-windows for this bird.
 
     'dt' is the stride with which the windows should be sampled.
     """
     # Set seed if necessary
-    if seed != None and type(seed) == int:
+    if seed is not None and type(seed) == int:
         random.seed(seed)
 
-    ## Handle the 'wnd_sizes' variable
+    # Handle the 'wnd_sizes' variable
     if type(wnd_sizes) == int:
         wnd_sizes = [wnd_sizes]
 
-    ## Handle the 'limits' input
+    # Handle the 'limits' input
     # If 'limits' is not specified, return the same amount of windows per bird
-    if limits == None:
+    if limits is None:
         limits = {bird_name: 20000 for bird_name in bird_data.keys()}
     elif type(limits) == int or type(limits) == float:
         limits = {bird_name: limits for bird_name in bird_data.keys()}
     elif type(limits) == dict:
         pass
     else:
-        raise Exception("The variable 'limits' has the wrong format! Check out the function docstring for an explanation of the format.")
+        raise Exception("The variable 'limits' has the wrong format! " +
+                        "Check out the function docstring for an explanation of the format.")
 
-    ## Handle the 'on_fracs' input
-    # If 'on_fracs' is not specified, return for each bird 50% on-windows and 50% off-windows 
-    if on_fracs == None:
+    # Handle the 'on_fracs' input
+    # If 'on_fracs' is not specified, return for each bird 50% on-windows and 50% off-windows
+    if on_fracs is None:
         on_fracs = {bird_name: 0.5 for bird_name in bird_data.keys()}
     elif type(on_fracs) == int or type(on_fracs) == float:
         on_fracs = {bird_name: on_fracs for bird_name in bird_data.keys()}
     elif type(on_fracs) == dict:
         pass
     else:
-        raise Exception("The variable 'on_fracs' has the wrong format! Check out the function docstring for an explanation of the format.")
+        raise Exception("The variable 'on_fracs' has the wrong format! " +
+                        "Check out the function docstring for an explanation of the format.")
 
     # The final results dictionary
     results = {}
     real_configs = {}
 
-    ## Iterate over all window sizes and create the windows
+    # Iterate over all window sizes and create the windows
     for wnd_sz in wnd_sizes:
         # For each bird, compute the maximum possible number of windows:
         max_sizes = compute_max_window_sizes(bird_data, wnd_sz, dt)
 
         results[wnd_sz] = {}
         real_configs[wnd_sz] = {}
-        
+
         # Iterate over each bird in 'bird_data'
         for bird_name in bird_data.keys():
             results[wnd_sz][bird_name] = {}
@@ -651,7 +792,7 @@ def create_windows(bird_data, wnd_sizes, feature_extraction = False, limits = No
 
             spectograms = bird_data[bird_name]["Xs_train"]
             tuples = bird_data[bird_name]["tuples"]
-            
+
             # If 'limits' contains fractions, compute the corresponding absolute numbers
             if type(limits[bird_name]) == float:
                 limit = round(max_sizes[bird_name] * limits[bird_name])
@@ -673,7 +814,8 @@ def create_windows(bird_data, wnd_sizes, feature_extraction = False, limits = No
             # Two variables denoting how many spectograms on- and off-windows have already
             # been sampled
             curr_on = curr_off = 0
-            on_windows = []; off_windows = []
+            on_windows = []
+            off_windows = []
 
             # Iterate over all spectograms of this bird
             for id in ids:
@@ -682,11 +824,11 @@ def create_windows(bird_data, wnd_sizes, feature_extraction = False, limits = No
 
                 # Extract the windows of this spectogram
                 on_windows_tmp, off_windows_tmp = extract_from_spectogram(
-                        spectogram = spectogram, 
-                        tuples = spec_tuples,
-                        wnd_sz = wnd_sz, 
-                        dt = dt, 
-                        feature_extraction = feature_extraction)
+                    spectogram=spectogram,
+                    tuples=spec_tuples,
+                    wnd_sz=wnd_sz,
+                    dt=dt,
+                    feature_extraction=feature_extraction)
 
                 # Keep track of how many on- and off-type windows we extracted so far
                 curr_on += len(on_windows_tmp)
@@ -697,11 +839,11 @@ def create_windows(bird_data, wnd_sizes, feature_extraction = False, limits = No
 
                 if curr_on >= on_num and curr_off >= off_num:
                     break
-            
+
             # Make sure that we don't return too many windows
             if curr_on >= on_num and curr_off >= off_num:
-                on_windows = random.sample(on_windows,curr_on)
-                off_windows = random.sample(off_windows,curr_off)
+                on_windows = random.sample(on_windows, curr_on)
+                off_windows = random.sample(off_windows, curr_off)
             # If one type has less tuples than desired, compensate by adding more windows
             # from the other type. Like this we ensure that we return exactly 'limit' many windows
             elif curr_on >= on_num:
@@ -713,7 +855,7 @@ def create_windows(bird_data, wnd_sizes, feature_extraction = False, limits = No
             labels = [1] * len(on_windows) + [0] * len(off_windows)
 
             # Shuffle the windows, and labels arrays
-            combined = list(zip(windows,labels))
+            combined = list(zip(windows, labels))
             combined = random.sample(combined, len(combined))
             windows = list(map(lambda tup: tup[0], combined))
             labels = list(map(lambda tup: tup[1], combined))
@@ -726,44 +868,50 @@ def create_windows(bird_data, wnd_sizes, feature_extraction = False, limits = No
 
     return results, real_configs
 
+
 def store_birds(name, bird_data):
-    dump(bird_data_path + "bird_data_"+name, bird_data)
-    np.save(bird_data_path + "bird_data_" +name,bird_data)
+    dump(BIRD_DATA_PATH + "bird_data_"+name, bird_data)
+    np.save(BIRD_DATA_PATH + "bird_data_" + name, bird_data)
+
 
 def load_birds(name):
-    file_name = bird_data_path + "bird_data_" + name + ".npy"
+    file_name = BIRD_DATA_PATH + "bird_data_" + name + ".npy"
     if path.isfile(file_name):
         return np.load(file_name,  allow_pickle=True)
     return None
 
-def store_dataset(name, results, configs = None):
+
+def store_dataset(name, results, configs=None):
     """
     This function is written to store dataset dictionaries like the ones returned by the function
     'create_windows'. However, it doesn't check whether its input follows these rules, so you can also
     use it to store simple 'X', 'y' pairs.
     """
     pair = [results, configs]
-    np.save(dataset_path + "dataset_" + name, pair)
+    np.save(DATASET_PATH + "dataset_" + name, pair)
+
 
 def load_dataset(name):
-    file_name = dataset_path + "dataset_" + name + ".npy"
+    file_name = DATASET_PATH + "dataset_" + name + ".npy"
     if path.isfile(file_name):
         (results, configs) = np.load(file_name,  allow_pickle=True)
-        if configs == None:
+        if configs is None:
             return results
         return results, configs
     return None
 
-def flatten_windows_dic(windows_dic, bird_names = None):
+
+def flatten_windows_dic(windows_dic, bird_names=None):
     """
     Takes a 'window_dic' like for example the one returned by 'create_windows' (without the first level
-    which specifies the window size) and combine the datasets of all birds specified by 'bird_names' 
+    which specifies the window size) and combine the datasets of all birds specified by 'bird_names'
     to two single arrays X and y. These two arrays can then be used for training
     """
-    if bird_names == None:
+    if bird_names is None:
         bird_names = windows_dic.keys()
 
-    X = []; y = []
+    X = []
+    y = []
 
     for bird_name in bird_names:
         bird_windows = windows_dic[bird_name]
@@ -772,74 +920,36 @@ def flatten_windows_dic(windows_dic, bird_names = None):
 
     return X, y
 
-def extract_and_store_datasets(wnd_sizes, use_feature_extraction, limit):
-    """
-    For every wnd size, extract a dataset from the training data with or without extracted features.
-    """
-    base = path.dirname(path.abspath(__file__))
-    if not os.path.isdir(os.path.join(base,"Data/Datasets")):
-        os.mkdir(os.path.join(base,"Data/Datasets"))
-
-    download()
-    # - Get the training data
-    Xs_train = loadmat(path.join(base,"Data/train_dataset/spectrograms/g17y2_train.mat"))["Xs_train"][0]
-    annotations = loadmat(path.join(base,"Data/train_dataset/annotations/annotations_g17y2_train.mat"))["annotations_train"][0]
-
-    SETindex = annotations["y"][0]["SETindex"][0][0][0]-1
-    ons = annotations["y"][0]["onset_columns"][0][0][0]-1
-    offs = annotations["y"][0]["offset_columns"][0][0][0]-1
-    ground_truth_tuples = [(a,b,c) for a,b,c in zip(ons,offs,SETindex)]
-
-    for wnd_sz in wnd_sizes:
-        file_name = ("_features_%s_wnd_sz_%s_limit_%s.npy" % (str(use_feature_extraction),str(wnd_sz),str(limit)))
-        if not os.path.isfile(os.path.join(base,"Data/Datasets/"+"X"+file_name)):
-            X_train, y_train = get_train_data(Xs_train, ground_truth_tuples, wnd_sz=wnd_sz, dt=5, limit=limit, use_features=use_feature_extraction)
-            np.save(os.path.join(base,"Data/Datasets/"+"X"+file_name), X_train, allow_pickle=True)
-            np.save(os.path.join(base,"Data/Datasets/"+"y"+file_name), y_train, allow_pickle=True)
-
-def load_dataset_old(wnd_sz, use_feature_extraction, limit):
-    """
-    Load the dataset and return X and y
-    """
-    base = path.dirname(path.abspath(__file__))
-    file_name = ("_features_%s_wnd_sz_%s_limit_%s.npy" % (str(use_feature_extraction),str(wnd_sz),str(limit)))
-    if os.path.isfile(os.path.join(base, "Data/Datasets/" + "X" + file_name)):
-        X = np.load(os.path.join(base, "Data/Datasets/" + "X" + file_name), allow_pickle=True)
-        y = np.load(os.path.join(base, "Data/Datasets/" + "y" + file_name), allow_pickle=True)
-        return X,y
-    else:
-        print("WARNING: Dataset not found.")
-        return None
 
 class BirdDataLoader:
 
-    def __init__(self, train, validation, test, network_type = "cnn", normalize_input = True):
+    def __init__(self, train, validation, test, network_type="cnn", normalize_input=True):
         # network type can be either 'cnn' or 'rnn'
 
         self.X_train, self.X_val, self.X_test = torch.tensor(train[0]), torch.tensor(validation[0]), torch.tensor(test[0])
-        self.y_train, self.y_val, self.y_test = torch.tensor(train[1]), torch.tensor(validation[1]), torch.tensor(test[1])       
+        self.y_train, self.y_val, self.y_test = torch.tensor(train[1]), torch.tensor(validation[1]), torch.tensor(test[1])
 
         self.wnd_sz = self.X_train.shape[2]
         self.nfreq = self.X_train.shape[1]
 
         if normalize_input:
-            self.mean = torch.mean(torch.tensor(self.X_train).float())
-            self.std = torch.std(torch.tensor(self.X_train).float())
-            self.X_train = normalize(torch.tensor(self.X_train).float())
-            self.X_val = normalize(torch.tensor(self.X_val).float())
-            self.X_test = normalize(torch.tensor(self.X_test).float())
+            self.mean = torch.mean(self.X_train.float())
+            self.std = torch.std(self.X_train.float())
+            self.X_train = normalize(self.X_train.float())
+            self.X_val = normalize(self.X_val.float())
+            self.X_test = normalize(self.X_test.float())
         else:
             self.mean = 0.0
             self.std = 1.0
 
         if network_type == "cnn":
-            dimensions = (-1,1,128,self.wnd_sz)
+            dimensions = (-1, 1, 128, self.wnd_sz)
         elif network_type == "rnn":
-            dimensions = (-1,128,self.wnd_sz)
+            dimensions = (-1, 128, self.wnd_sz)
 
-        self.train_dataset = TensorDataset(torch.reshape(self.X_train,dimensions),torch.tensor(self.y_train))
-        self.val_dataset = TensorDataset(torch.reshape(self.X_val,dimensions),torch.tensor(self.y_val))
-        self.test_dataset = TensorDataset(torch.reshape(self.X_test,dimensions),torch.tensor(self.y_test))
+        self.train_dataset = TensorDataset(torch.reshape(self.X_train, dimensions), self.y_train)
+        self.val_dataset = TensorDataset(torch.reshape(self.X_val, dimensions), self.y_val)
+        self.test_dataset = TensorDataset(torch.reshape(self.X_test, dimensions), self.y_test)
 
     def get_data_loader(self, dset, shuffle, num_workers, batch_size):
         if dset == "train":
