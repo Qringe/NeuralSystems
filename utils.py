@@ -656,7 +656,7 @@ def compute_max_window_sizes(bird_data, wnd_sz, dt):
     return result
 
 
-def extract_from_spectogram(spectogram, tuples, wnd_sz, dt, feature_extraction):
+def extract_from_spectogram(spectogram, tuples, wnd_sz, dt, feature_extraction=False, online=False):
     """
     Takes a single spectogram and the corresponding tuples. The function then "walks" over the spectogram
     from left to right and extracts windows of size 'wnd_sz', using a stride of 'dt'. It keeps track of the
@@ -665,12 +665,15 @@ def extract_from_spectogram(spectogram, tuples, wnd_sz, dt, feature_extraction):
     # Array 'X_on' stores the extracted on-windows and 'X_off' the windows of type off
     X_on = []
     X_off = []
-    w = int(wnd_sz / 2)
 
     # A helper function which extracts a window at a given position (if possible)
     def get_wnd_data(t):
-        left = int(t-w)
-        right = int(t+w)
+        if online:
+            left = int(t-wnd_sz)
+            right = int(t)
+        else:
+            left = int(t-wnd_sz)
+            right = int(t+wnd_sz)
         if left < 0 or right >= spectogram.shape[1]:
             return None
         if feature_extraction:
@@ -693,7 +696,7 @@ def extract_from_spectogram(spectogram, tuples, wnd_sz, dt, feature_extraction):
     return X_on, X_off
 
 
-def create_windows(bird_data, wnd_sizes, feature_extraction=False, limits=None,  on_fracs=None, dt=5, seed=None):
+def create_windows(bird_data, wnd_sizes, feature_extraction=False, limits=None,  on_fracs=None, dt=5, online=False, seed=None):
     """
     For every window size in 'wnd_sizes' convert the spectograms in the 'bird_data' dictionary to
     a set of windows.
@@ -740,6 +743,9 @@ def create_windows(bird_data, wnd_sizes, feature_extraction=False, limits=None, 
             on-windows for this bird.
 
     'dt' is the stride with which the windows should be sampled.
+
+    'online' is a boolean variable indicating whether only spectogram columns before the target column should be extracted or
+    also columns after the target column
     """
     # Set seed if necessary
     if seed is not None and type(seed) == int:
@@ -828,7 +834,8 @@ def create_windows(bird_data, wnd_sizes, feature_extraction=False, limits=None, 
                     tuples=spec_tuples,
                     wnd_sz=wnd_sz,
                     dt=dt,
-                    feature_extraction=feature_extraction)
+                    feature_extraction=feature_extraction,
+                    online=online)
 
                 # Keep track of how many on- and off-type windows we extracted so far
                 curr_on += len(on_windows_tmp)
@@ -923,13 +930,17 @@ def flatten_windows_dic(windows_dic, bird_names=None):
 
 class BirdDataLoader:
 
-    def __init__(self, train, validation, test, network_type="cnn", normalize_input=True):
+    def __init__(self, train, validation, test, network_type="cnn", normalize_input=True, online=False):
         # network type can be either 'cnn' or 'rnn'
 
         self.X_train, self.X_val, self.X_test = torch.tensor(train[0]), torch.tensor(validation[0]), torch.tensor(test[0])
         self.y_train, self.y_val, self.y_test = torch.tensor(train[1]), torch.tensor(validation[1]), torch.tensor(test[1])
 
-        self.wnd_sz = self.X_train.shape[2]
+        self.input_sz = self.X_train.shape[2]
+        if online:
+            self.wnd_sz = self.input_sz
+        else:
+            self.wnd_sz = int(self.input_sz / 2)
         self.nfreq = self.X_train.shape[1]
 
         if normalize_input:
@@ -943,9 +954,9 @@ class BirdDataLoader:
             self.std = 1.0
 
         if network_type == "cnn":
-            dimensions = (-1, 1, 128, self.wnd_sz)
+            dimensions = (-1, 1, 128, self.input_sz)
         elif network_type == "rnn":
-            dimensions = (-1, 128, self.wnd_sz)
+            dimensions = (-1, 128, self.input_sz)
 
         self.train_dataset = TensorDataset(torch.reshape(self.X_train, dimensions), self.y_train)
         self.val_dataset = TensorDataset(torch.reshape(self.X_val, dimensions), self.y_val)

@@ -1,5 +1,6 @@
 import numpy as np
 import os.path as path
+import gc
 from joblib import dump, load
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
@@ -49,6 +50,7 @@ def predict_dataset(model, spectograms, ground_truth_tuples, name, read_cache=Tr
     # Iterate over all spectograms
     for index, spec in enumerate(spectograms):
         if index % 20 == 0:
+            gc.collect()
             print(index, "/", len(spectograms))
 
         # Generate predictions for current spectogram. Make sure that they are sorted
@@ -114,10 +116,11 @@ def analyze_errors(predictions):
                 any(map(lambda t_b: t_a[0] >= t_b[0] and t_a[1] <= t_b[1], b))]
 
     # Store all tuples which are erroneous in their respective arrays
-    type1_tuples = []
-    type2_tuples = []
-    type3_tuples = []
-    type4_tuples = []
+
+    # type1_tuples = []
+    # type2_tuples = []
+    # type3_tuples = []
+    # type4_tuples = []
 
     # Store the amount of times each error occurs in these variables
     type1_amount = type2_amount = type3_amount = type4_amount = 0
@@ -145,17 +148,17 @@ def analyze_errors(predictions):
         overlap = set_intersect(y_pred, y_true)
         type1 = [t for t in y_pred if t in overlap and t not in y_true]
         type1_amount += len(type1)
-        type1_tuples.extend(type1)
+        # type1_tuples.extend(type1)
 
         # Find all errors of type 2 (Noise errors)
         type2 = set_minus(y_pred, y_true)
         type2_amount += len(type2)
-        type2_tuples.extend(type2)
+        # type2_tuples.extend(type2)
 
         # Find all errors of type 3 (Skip errors)
         type3 = set_minus(y_true, y_pred)
         type3_amount += len(type3)
-        type3_tuples.extend(type3)
+        # type3_tuples.extend(type3)
 
         # Find all errors of type 4 (Split errors)
         # For all consecutive pairs of tuples 'a','b' in 'y_pred', get the interval
@@ -164,7 +167,7 @@ def analyze_errors(predictions):
         consecutive_tuples = [(t[0][1], t[1][0], t[0][2]) for t in consecutive_tuples]
         type4 = set_contains(consecutive_tuples, y_true)
         type4_amount += len(type4)
-        type4_tuples.extend(type4)
+        # type4_tuples.extend(type4)
 
         accuracies.append(score_predictions(y_true, y_pred))
 
@@ -186,10 +189,10 @@ def analyze_errors(predictions):
             'type2_amount': type2_amount,
             'type3_amount': type3_amount,
             'type4_amount': type4_amount,
-            'type1_tuples': type1_tuples,
-            'type2_tuples': type2_tuples,
-            'type3_tuples': type3_tuples,
-            'type4_tuples': type4_tuples,
+            # 'type1_tuples': type1_tuples,
+            # 'type2_tuples': type2_tuples,
+            # 'type3_tuples': type3_tuples,
+            # 'type4_tuples': type4_tuples,
             'accuracy': accuracy,
             'precision': precision,
             'recall': recall,
@@ -203,13 +206,22 @@ def compare_classifiers(dataset=None, model_dic=None, print_summary=True):
     Take the different classifiers and generates predictions for the specified dataset.
     The predictions are then analyzed and the different types of errors get listed.
 
+    IF 'dataset' is 'None', the data of all birds is loaded. Else it should have the form:
+        {
+            "bird_name1": {"Xs_train" : Xs_train, "tuples" : ground_truth_tuples},
+            "bird_name2": {"Xs_train" : Xs_train, "tuples" : ground_truth_tuples},
+            ...
+        }
+    where "Xs_train" is a list of spectograms and "tuples" a list of tuples of the form (on,off,SETindex,bird_name) denoting
+    the start (on) and end (off) of a syllable, and the spectogram index (SETindex) of said syllable, and the name of the bird
+    (bird_name) from which the syllable stems from.
+
     'model_dic' is a dictionary containing a mapping of model names to models:
         {
             "model_name1" : model1,
             "model_name2" : model2,
             ...
         }
-
 
     Note: This function assumes that the classifiers have already been trained before.
     """
@@ -232,6 +244,7 @@ def compare_classifiers(dataset=None, model_dic=None, print_summary=True):
 
     # Iterate through all specified birds and generate predictions
     for bird_name in bird_names:
+        gc.collect()
         bird_data = dataset[bird_name]
         spectograms = bird_data['Xs_train']
         tuples = bird_data['tuples']
@@ -304,6 +317,7 @@ if __name__ == "__main__":
     wnd_sz = 20
     limit = 70000
     standardize = False
+    online = False
 
     # Some RNN parameters
     network_type = "gru"    # Choose from {'rnn', 'lstm', 'gru'}
@@ -346,13 +360,13 @@ if __name__ == "__main__":
         }
 
         if not path.isfile(cnn_path):
-            cnn = train_CNN(dataset, cnn_name, normalize_input=standardize)
+            cnn = train_CNN(dataset, cnn_name, normalize_input=True, online=online)
         if not path.isfile(rnn_path):
             rnn = train_RNN(dataset, rnn_name, network_type=network_type, hidden_size=hidden_size,
-                            num_layers=num_layers, normalize_input=standardize)
+                            num_layers=num_layers, normalize_input=True, online=online)
 
     # Load the CNN
-    cnn = load_cnn(cnn_path, wnd_sz)
+    cnn = load_cnn(cnn_path, wnd_sz, online=online)
     rnn = load_rnn(rnn_path, network_type, nfreq=128, hidden_size=hidden_size, num_layers=num_layers, device=DEVICE)
 
     # Print the number of parameters
@@ -361,7 +375,7 @@ if __name__ == "__main__":
 
     cnn_wrapped = wrap_cnn(cnn, mode="for_spectograms")
     rnn_wrapped = wrap_rnn(rnn, mode="for_spectograms")
-    compare_classifiers(dataset=None, model_dic={"cnn": cnn_wrapped, "rnn": rnn_wrapped}, print_summary=True)
+    # compare_classifiers(dataset=None, model_dic={"cnn": cnn_wrapped, "rnn": rnn_wrapped}, print_summary=True)
 
     transfer_model_dic_cnn = get_transfer_learning_models_CNN(
         bird_names=["g19o10", "R3428"],
@@ -390,10 +404,10 @@ if __name__ == "__main__":
     transfer_model_dic_rnn["base_RNN"] = rnn
 
     for key in transfer_model_dic_cnn:
-        transfer_model_dic_cnn[key] = wrap_cnn(transfer_model_dic_cnn[key], mode="for_spectograms", normalize_input=standardize)
+        transfer_model_dic_cnn[key] = wrap_cnn(transfer_model_dic_cnn[key], mode="for_spectograms", normalize_input=True)
 
     for key in transfer_model_dic_rnn:
-        transfer_model_dic_rnn[key] = wrap_rnn(transfer_model_dic_rnn[key], mode="for_spectograms", normalize_input=standardize)
+        transfer_model_dic_rnn[key] = wrap_rnn(transfer_model_dic_rnn[key], mode="for_spectograms", normalize_input=True)
 
     compare_classifiers(dataset=None, model_dic=transfer_model_dic_cnn, print_summary=True)
     compare_classifiers(dataset=None, model_dic=transfer_model_dic_rnn, print_summary=True)

@@ -82,7 +82,7 @@ def train_SVM(X,y,model_name):
 # CNN stuff
 
 
-def wrap_cnn(cnn, mode="for_spectograms", normalize_input=True):
+def wrap_cnn(cnn, mode="for_spectograms", normalize_input=True, online=False):
     """
     mode has to be one of ["for_spectograms", "for_windows"]
     """
@@ -96,7 +96,7 @@ def wrap_cnn(cnn, mode="for_spectograms", normalize_input=True):
         X = torch.tensor(X)
         if normalize_input:
             X = normalize(X, mean=real_cnn.mean, std=real_cnn.std)
-        X = torch.reshape(X, (-1, 1, 128, real_cnn.wnd_sz)).to(DEVICE)
+        X = torch.reshape(X, (-1, 1, 128, real_cnn.input_sz)).to(DEVICE)
         pred = real_cnn(X)
         return torch.argmax(pred, dim=1)
 
@@ -107,7 +107,7 @@ def wrap_cnn(cnn, mode="for_spectograms", normalize_input=True):
         """
         return predict_syllables_CNN(
             spectogram, idx, window_wrapper, wnd_sz=real_cnn.wnd_sz,
-            feature_extraction=real_cnn.feature_extraction)
+            feature_extraction=real_cnn.feature_extraction, online=online)
 
     if mode == "for_windows":
         window_wrapper.is_wrapped = "for_windows"
@@ -121,24 +121,26 @@ def wrap_cnn(cnn, mode="for_spectograms", normalize_input=True):
         raise Exception(f"The mode '{mode}' does not exist! Please choose from ['for_spectograms', 'for_windows']")
 
 
-def predict_syllables_CNN(X, idx_spectogram, cnn, wnd_sz, feature_extraction):
+def predict_syllables_CNN(X, idx_spectogram, cnn, wnd_sz, feature_extraction, online=False):
     """
     Take 128 x T sized spectogram and predict the on and off of syllables using CNN
     """
-    w = int(wnd_sz / 2)
-    is_on = w * [0]
+    is_on = wnd_sz * [0]
     X_s = []
-    for t in range(w, X.shape[1]-w):
+    for t in range(wnd_sz, X.shape[1]-wnd_sz):
         if feature_extraction:
             # X_f = extract_features(X[:,t-w:t+w])
             raise Exception("This hasn't been implemented yet for CNNs!")
         else:
-            X_f = X[:, t-w:t+w]
+            if online:
+                X_f = X[:, t-wnd_sz:t]
+            else:
+                X_f = X[:, t-wnd_sz:t+wnd_sz]
         X_s.append(X_f)
     X_s = np.array(X_s)
     y_pred = cnn(X_s)
     is_on.extend(y_pred)
-    is_on.extend(w*[0])
+    is_on.extend(wnd_sz*[0])
 
     _, peaks_dict = find_peaks(is_on, plateau_size=[5, 20000])
     le = peaks_dict['left_edges']
@@ -147,9 +149,10 @@ def predict_syllables_CNN(X, idx_spectogram, cnn, wnd_sz, feature_extraction):
     return return_tuples
 
 
-def train_CNN(datasets, model_name, feature_extraction=False, normalize_input=True):
+def train_CNN(datasets, model_name, feature_extraction=False, normalize_input=True, online=False):
     # - Create data loader
-    dataloader = BirdDataLoader(datasets['train'], datasets['validation'], datasets['test'], normalize_input=normalize_input)
+    dataloader = BirdDataLoader(datasets['train'], datasets['validation'], datasets['test'],
+                                normalize_input=normalize_input, online=online)
 
     # - Create data loader test
     data_loader_test = dataloader.get_data_loader(
@@ -166,11 +169,11 @@ def train_CNN(datasets, model_name, feature_extraction=False, normalize_input=Tr
     base = path.dirname(path.abspath(__file__))
     save_path = path.join(base, MODEL_PATH + model_name)
 
-    cnn = load_cnn(save_path, wnd_sz)
+    cnn = load_cnn(save_path, wnd_sz, online=online)
     best_val_acc = -np.inf
     if cnn is None:
         cnn = get_CNN_architecture(wnd_sz)
-        cnn.set_data(dataloader.mean, dataloader.std, wnd_sz, feature_extraction)
+        cnn.set_data(dataloader.mean, dataloader.std, wnd_sz, feature_extraction, online=online)
 
         data_loader_train = dataloader.get_data_loader(
             dset="train", shuffle=True, num_workers=4, batch_size=64
@@ -218,7 +221,8 @@ def get_transfer_learning_models_CNN(
     wnd_sz,
     limit,
     retrain_layers=4,
-    standardize_input=False
+    standardize_input=False,
+    online=False
 ):
     """
     bird_names: list of birdnames in g17y2,g19o10,g4p5,R3428
@@ -253,7 +257,7 @@ def get_transfer_learning_models_CNN(
         network_name = "%s_wnd_sz_%s_transfer_bird_%s.model" % (arch, wnd_sz, bird_name)
         network_path = path.join(base, MODEL_PATH+network_name)
 
-        cnn_transfer = load_cnn(network_path, wnd_sz)
+        cnn_transfer = load_cnn(network_path, wnd_sz, online=online)
         if cnn_transfer is None:
 
             X_train, y_train = windows_train[wnd_sz][bird_name]['X'], windows_train[wnd_sz][bird_name]['y']
@@ -269,7 +273,7 @@ def get_transfer_learning_models_CNN(
             )
             cnn_transfer = deepcopy(base_model)
             cnn_transfer.train()
-            cnn_transfer.set_data(dataloader.mean, dataloader.std, wnd_sz, False)  # use_feature_extraction
+            cnn_transfer.set_data(dataloader.mean, dataloader.std, wnd_sz, False, online=online)  # use_feature_extraction
             data_loader_train = dataloader.get_data_loader(
                 dset="train", shuffle=True, num_workers=4, batch_size=64
             )
@@ -332,12 +336,13 @@ def evaluate_model_cnn(cnn, data_loader):
     return acc
 
 
-def load_cnn(path, wnd_sz):
+def load_cnn(path, wnd_sz, online=False):
     if os.path.isfile(path):
-        cnn = get_CNN_architecture(wnd_sz)
+        cnn = get_CNN_architecture(wnd_sz, online=online)
+        data = torch.load(path + ".data")
         cnn.load_state_dict(torch.load(path, map_location=DEVICE))
         data = torch.load(path + ".data")
-        cnn.set_data(data['mean'], data['std'], data['wnd_sz'], data['feature_extraction'])
+        cnn.set_data(data['mean'], data['std'], data['wnd_sz'], data['feature_extraction'], online=online)
         cnn.eval()
         return cnn
     else:
@@ -351,12 +356,16 @@ def compute_output_dim(M, N, K0, K1, P0=0, P1=0, S0=1, S1=1, D0=1, D1=1):
 
 
 class Net(nn.Module):
-    def __init__(self, wnd_sz):
+    def __init__(self, wnd_sz, online=False):
         super().__init__()
+        if online:
+            self.input_sz = wnd_sz
+        else:
+            self.input_sz = 2 * wnd_sz
         self.wnd_sz = wnd_sz
         self.conv1 = nn.Conv2d(1, 6, 5)
         self.pool = nn.MaxPool2d(2, 2)
-        HOUT, WOUT = compute_output_dim(128, self.wnd_sz, 5, 5)
+        HOUT, WOUT = compute_output_dim(128, self.input_sz, 5, 5)
         HOUT = int(HOUT / 2)
         WOUT = int(WOUT / 2)
         self.conv2 = nn.Conv2d(6, 16, 5)
@@ -381,16 +390,20 @@ class Net(nn.Module):
         x = self.fc3(x)
         return x
 
-    def set_data(self, mean=None, std=None, wnd_sz=None, feature_extraction=None):
+    def set_data(self, mean=None, std=None, wnd_sz=None, feature_extraction=None, online=False):
         self.mean = mean
         self.std = std
         self.wnd_sz = wnd_sz
+        if online:
+            self.input_sz = wnd_sz
+        else:
+            self.input_sz = 2 * wnd_sz
         self.feature_extraction = feature_extraction
 
 
-def get_CNN_architecture(wnd_sz):
+def get_CNN_architecture(wnd_sz, online=False):
     # - Create sequential model
-    cnn = Net(wnd_sz)
+    cnn = Net(wnd_sz, online=online)
     cnn = cnn.to(DEVICE)
     return cnn
 
@@ -398,7 +411,7 @@ def get_CNN_architecture(wnd_sz):
 # RNN stuff
 
 
-def wrap_rnn(rnn, mode="for_spectograms", normalize_input=True):
+def wrap_rnn(rnn, mode="for_spectograms", normalize_input=True, online=False):
     """
     mode has to be one of ["for_spectograms", "for_windows"]
     """
@@ -412,14 +425,17 @@ def wrap_rnn(rnn, mode="for_spectograms", normalize_input=True):
         X = torch.tensor(X)
         if normalize_input:
             X = normalize(X, mean=real_rnn.mean, std=real_rnn.std)
-        X = torch.reshape(X, (-1, 128, real_rnn.wnd_sz)).to(DEVICE)
+        if online:
+            X = torch.reshape(X, (-1, 128, real_rnn.wnd_sz)).to(DEVICE)
+        else:
+            X = torch.reshape(X, (-1, 128, 2 * real_rnn.wnd_sz)).to(DEVICE)
         X = torch.transpose(torch.transpose(X, 1, 2), 0, 1)
         pred = real_rnn(X)
         return torch.argmax(pred, dim=1)
 
     def spectogram_wrapper(spectogram, idx):
         return predict_syllables_RNN(spectogram, idx, window_wrapper, wnd_sz=real_rnn.wnd_sz,
-                                     feature_extraction=real_rnn.feature_extraction)
+                                     feature_extraction=real_rnn.feature_extraction, online=online)
 
     if mode == "for_windows":
         window_wrapper.is_wrapped = "for_windows"
@@ -433,24 +449,26 @@ def wrap_rnn(rnn, mode="for_spectograms", normalize_input=True):
         raise Exception(f"The mode '{mode}' does not exist! Please choose from ['for_spectograms', 'for_windows']")
 
 
-def predict_syllables_RNN(X, idx_spectogram, rnn, wnd_sz, feature_extraction):
+def predict_syllables_RNN(X, idx_spectogram, rnn, wnd_sz, feature_extraction, online=False):
     """
     Take 128 x T sized spectogram and predict the on and off of syllables using CNN
     """
-    w = int(wnd_sz / 2)
-    is_on = w * [0]
+    is_on = wnd_sz * [0]
     X_s = []
-    for t in range(w, X.shape[1]-w):
+    for t in range(wnd_sz, X.shape[1]-wnd_sz):
         if feature_extraction:
             # X_f = extract_features(X[:,t-w:t+w])
             raise Exception("This hasn't been implemented yet for RNNs!")
         else:
-            X_f = X[:, t-w:t+w]
+            if online:
+                X_f = X[:, t-wnd_sz:t]
+            else:
+                X_f = X[:, t-wnd_sz:t+wnd_sz]
         X_s.append(X_f)
     X_s = np.array(X_s)
     y_pred = rnn(X_s)
     is_on.extend(y_pred)
-    is_on.extend(w*[0])
+    is_on.extend(wnd_sz*[0])
 
     _, peaks_dict = find_peaks(is_on, plateau_size=[5, 20000])
     le = peaks_dict['left_edges']
@@ -466,13 +484,14 @@ def train_RNN(
         hidden_size=100,
         num_layers=1,
         feature_extraction=False,
-        normalize_input=True
+        normalize_input=True,
+        online=False
 ):
 
     # Create data loader
     # The parameter 'network_type' always needs to be 'rnn'!
     dataloader = BirdDataLoader(datasets['train'], datasets['validation'], datasets['test'],
-                                network_type="rnn", normalize_input=normalize_input)
+                                network_type="rnn", normalize_input=normalize_input, online=online)
 
     # Create data loader test
     data_loader_test = dataloader.get_data_loader(
@@ -543,7 +562,7 @@ def train_RNN(
                 "wnd_sz": wnd_sz,
                 "feature_extraction": feature_extraction}, path.join(base, MODEL_PATH+model_name+".data"))
 
-    return wrap_rnn(rnn, mode="for_windows", normalize_input=normalize_input)
+    return wrap_rnn(rnn, mode="for_windows", normalize_input=normalize_input, online=online)
 
 
 def rnn_train_step(data, target, rnn, optimizer, device):
