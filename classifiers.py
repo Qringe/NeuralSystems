@@ -172,7 +172,7 @@ def train_CNN(datasets, model_name, feature_extraction=False, normalize_input=Tr
     cnn = load_cnn(save_path, wnd_sz, online=online)
     best_val_acc = -np.inf
     if cnn is None:
-        cnn = get_CNN_architecture(wnd_sz)
+        cnn = get_CNN_architecture(wnd_sz, online=online)
         cnn.set_data(dataloader.mean, dataloader.std, wnd_sz, feature_extraction, online=online)
 
         data_loader_train = dataloader.get_data_loader(
@@ -362,14 +362,18 @@ class Net(nn.Module):
             self.input_sz = wnd_sz
         else:
             self.input_sz = 2 * wnd_sz
+        self.online = online
         self.wnd_sz = wnd_sz
         self.conv1 = nn.Conv2d(1, 6, 5)
         HOUT, WOUT = compute_output_dim(128, self.input_sz, 5, 5)
-        self.pool = nn.MaxPool2d(2, 2)
-        HOUT, WOUT = compute_output_dim(HOUT, WOUT, 2, 2, S0=2, S1=2)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        HOUT, WOUT = compute_output_dim(HOUT, WOUT, 5, 5)
-        self.fc1 = nn.Linear(16 * HOUT * WOUT, 120)
+        if not self.online:
+            self.pool = nn.MaxPool2d(2, 2)
+            HOUT, WOUT = compute_output_dim(HOUT, WOUT, 2, 2, S0=2, S1=2)
+            self.conv2 = nn.Conv2d(6, 16, 5)
+            HOUT, WOUT = compute_output_dim(HOUT, WOUT, 5, 5)
+            self.fc1 = nn.Linear(16 * HOUT * WOUT, 120)
+        else:
+            self.fc1 = nn.Linear(6 * HOUT * WOUT, 120)
         self.fc2 = nn.Linear(120, 84)
         # Changed 10 to 2
         self.fc3 = nn.Linear(84, 2)
@@ -379,8 +383,10 @@ class Net(nn.Module):
 
     def forward(self, x):
         x = x.to(DEVICE, dtype=torch.float)
-        x = self.pool(F.relu(self.conv1(x)))
-        x = F.relu(self.conv2(x))
+        x = F.relu(self.conv1(x))
+        if not self.online:
+            x = self.pool(x)
+            x = F.relu(self.conv2(x))
         x = x.view(-1, np.prod(x.shape[1:]))
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))

@@ -21,8 +21,8 @@ from torch.utils.data import TensorDataset, DataLoader
 # Global parameters
 
 # Check if GPU is available
-# DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-DEVICE = "cpu"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# DEVICE = "cpu"
 
 # The list of available bird data
 BIRD_NAMES = ["g17y2", "g19o10", "g4p5", "R3428"]
