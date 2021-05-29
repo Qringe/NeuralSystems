@@ -397,6 +397,7 @@ class Net(nn.Module):
         self.mean = mean
         self.std = std
         self.wnd_sz = wnd_sz
+        self.online
         if online:
             self.input_sz = wnd_sz
         else:
