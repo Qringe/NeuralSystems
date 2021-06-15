@@ -6,7 +6,7 @@ from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 
 from utils import (
     # Constants
-    DEVICE, BIRD_NAMES, DATA_PATH, MODEL_PATH, PREDICTIONS_PATH,
+    DEVICE, BIRD_NAMES, DATA_PATH, MODEL_PATH, PREDICTIONS_PATH, TOLERANCE,
 
     # Data handling functions
     load_bird_data, extract_labelled_spectograms, train_test_split,
@@ -116,11 +116,10 @@ def analyze_errors(predictions):
                 any(map(lambda t_b: t_a[0] >= t_b[0] and t_a[1] <= t_b[1], b))]
 
     # Store all tuples which are erroneous in their respective arrays
-
-    # type1_tuples = []
-    # type2_tuples = []
-    # type3_tuples = []
-    # type4_tuples = []
+    type1_tuples = []
+    type2_tuples = []
+    type3_tuples = []
+    type4_tuples = []
 
     # Store the amount of times each error occurs in these variables
     type1_amount = type2_amount = type3_amount = type4_amount = 0
@@ -142,23 +141,30 @@ def analyze_errors(predictions):
 
         # If we don't have any lables, there is nothing to analyze
         if y_true == []:
+            type1_tuples.append([])
+            type2_tuples.append(y_pred)
+            type3_tuples.append([])
+            type4_tuples.append([])
             continue
 
         # Find all errors of type 1 (Border errors)
-        overlap = set_intersect(y_pred, y_true)
-        type1 = [t for t in y_pred if t in overlap and t not in y_true]
+        # overlap = set_intersect(y_pred, y_true)
+        # type1 = [t for t in y_pred if t in overlap and t not in y_true]
+        type1 = [t for t in y_pred if len(
+            {t2 for t2 in y_true if abs(t[0] - t2[0]) <= TOLERANCE and abs(t[1] - t2[1]) <= TOLERANCE}
+            ) == 0]
         type1_amount += len(type1)
-        # type1_tuples.extend(type1)
+        type1_tuples.append(type1)
 
         # Find all errors of type 2 (Noise errors)
         type2 = set_minus(y_pred, y_true)
         type2_amount += len(type2)
-        # type2_tuples.extend(type2)
+        type2_tuples.append(type2)
 
         # Find all errors of type 3 (Skip errors)
         type3 = set_minus(y_true, y_pred)
         type3_amount += len(type3)
-        # type3_tuples.extend(type3)
+        type3_tuples.append(type3)
 
         # Find all errors of type 4 (Split errors)
         # For all consecutive pairs of tuples 'a','b' in 'y_pred', get the interval
@@ -167,9 +173,9 @@ def analyze_errors(predictions):
         consecutive_tuples = [(t[0][1], t[1][0], t[0][2]) for t in consecutive_tuples]
         type4 = set_contains(consecutive_tuples, y_true)
         type4_amount += len(type4)
-        # type4_tuples.extend(type4)
+        type4_tuples.append(type4)
 
-        accuracies.append(score_predictions(y_true, y_pred))
+        accuracies.append(score_predictions(y_true, y_pred, tolerance=TOLERANCE))
 
     # Compute a few standard error metrics
     # First transform the tuples into a single array of 0s and 1s representing local/
@@ -189,10 +195,10 @@ def analyze_errors(predictions):
             'type2_amount': type2_amount,
             'type3_amount': type3_amount,
             'type4_amount': type4_amount,
-            # 'type1_tuples': type1_tuples,
-            # 'type2_tuples': type2_tuples,
-            # 'type3_tuples': type3_tuples,
-            # 'type4_tuples': type4_tuples,
+            'type1_tuples': type1_tuples,
+            'type2_tuples': type2_tuples,
+            'type3_tuples': type3_tuples,
+            'type4_tuples': type4_tuples,
             'accuracy': accuracy,
             'precision': precision,
             'recall': recall,
@@ -315,9 +321,12 @@ if __name__ == "__main__":
     # Set some general parameters
     use_feature_extraction = False
     wnd_sz = 20
-    limit = 70000
+    limit = 80000
     standardize = False
     online = False
+
+    # If you only want to train the cnn stuff, set this to False
+    rnn_should_be_trained = False
 
     # Some RNN parameters
     network_type = "gru"    # Choose from {'rnn', 'lstm', 'gru'}
@@ -332,7 +341,7 @@ if __name__ == "__main__":
         network_type, num_layers, hidden_size, use_feature_extraction, wnd_sz, limit)
     rnn_path = path.join(base, MODEL_PATH+rnn_name)
 
-    if not (path.isfile(cnn_path) and path.isfile(rnn_path)):
+    if not (path.isfile(cnn_path) and (not rnn_should_be_trained or path.isfile(rnn_path))):
         # Load the data and get all labelled spectograms
         bird_data = load_bird_data(names=["g17y2"])
 
@@ -361,20 +370,23 @@ if __name__ == "__main__":
 
         if not path.isfile(cnn_path):
             cnn = train_CNN(dataset, cnn_name, normalize_input=True, online=online)
-        if not path.isfile(rnn_path):
+        if rnn_should_be_trained and not path.isfile(rnn_path):
             rnn = train_RNN(dataset, rnn_name, network_type=network_type, hidden_size=hidden_size,
                             num_layers=num_layers, normalize_input=True, online=online)
 
     # Load the CNN
     cnn = load_cnn(cnn_path, wnd_sz, online=online)
-    rnn = load_rnn(rnn_path, network_type, nfreq=128, hidden_size=hidden_size, num_layers=num_layers, device=DEVICE)
+    if rnn_should_be_trained:
+        rnn = load_rnn(rnn_path, network_type, nfreq=128, hidden_size=hidden_size, num_layers=num_layers, device=DEVICE)
 
     # Print the number of parameters
     print("CNN has ", sum(p.numel() for p in cnn.parameters()), " parameters.")
-    print("RNN has ", sum(p.numel() for p in rnn.parameters()), " parameters.")
+    if rnn_should_be_trained:
+        print("RNN has ", sum(p.numel() for p in rnn.parameters()), " parameters.")
 
     cnn_wrapped = wrap_cnn(cnn, mode="for_spectograms")
-    rnn_wrapped = wrap_rnn(rnn, mode="for_spectograms")
+    if rnn_should_be_trained:
+        rnn_wrapped = wrap_rnn(rnn, mode="for_spectograms")
     # compare_classifiers(dataset=None, model_dic={"cnn": cnn_wrapped, "rnn": rnn_wrapped}, print_summary=True)
 
     transfer_model_dic_cnn = get_transfer_learning_models_CNN(
@@ -386,28 +398,32 @@ if __name__ == "__main__":
         retrain_layers=4,
         standardize_input=standardize)
 
-    transfer_model_dic_rnn = get_transfer_learning_models_RNN(
-        bird_names=["g19o10", "R3428"],
-        base_model=rnn,
-        arch="RNN",
-        wnd_sz=wnd_sz,
-        limit=limit,
-        network_type=network_type,  # Choose from ["rnn","lstm","gru"]
-        hidden_size=hidden_size,
-        num_layers=num_layers,
-        retrain_layers=4,
-        nfreq=128,
-        standardize_input=standardize
-    )
+    if rnn_should_be_trained:
+        transfer_model_dic_rnn = get_transfer_learning_models_RNN(
+            bird_names=["g19o10", "R3428"],
+            base_model=rnn,
+            arch="RNN",
+            wnd_sz=wnd_sz,
+            limit=limit,
+            network_type=network_type,  # Choose from ["rnn","lstm","gru"]
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            retrain_layers=4,
+            nfreq=128,
+            standardize_input=standardize
+        )
 
     transfer_model_dic_cnn["base_CNN"] = cnn
-    transfer_model_dic_rnn["base_RNN"] = rnn
+    if rnn_should_be_trained:
+        transfer_model_dic_rnn["base_RNN"] = rnn
 
     for key in transfer_model_dic_cnn:
         transfer_model_dic_cnn[key] = wrap_cnn(transfer_model_dic_cnn[key], mode="for_spectograms", normalize_input=True)
 
-    for key in transfer_model_dic_rnn:
-        transfer_model_dic_rnn[key] = wrap_rnn(transfer_model_dic_rnn[key], mode="for_spectograms", normalize_input=True)
+    if rnn_should_be_trained:
+        for key in transfer_model_dic_rnn:
+            transfer_model_dic_rnn[key] = wrap_rnn(transfer_model_dic_rnn[key], mode="for_spectograms", normalize_input=True)
 
     compare_classifiers(dataset=None, model_dic=transfer_model_dic_cnn, print_summary=True)
-    compare_classifiers(dataset=None, model_dic=transfer_model_dic_rnn, print_summary=True)
+    if rnn_should_be_trained:
+        compare_classifiers(dataset=None, model_dic=transfer_model_dic_rnn, print_summary=True)

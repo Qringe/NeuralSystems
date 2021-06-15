@@ -139,7 +139,7 @@ def predict_syllables_CNN(X, idx_spectogram, cnn, wnd_sz, feature_extraction, on
         X_s.append(X_f)
     X_s = np.array(X_s)
     y_pred = cnn(X_s)
-    is_on.extend(y_pred)
+    is_on.extend(y_pred.cpu())
     is_on.extend(wnd_sz*[0])
 
     _, peaks_dict = find_peaks(is_on, plateau_size=[5, 20000])
@@ -471,7 +471,7 @@ def predict_syllables_RNN(X, idx_spectogram, rnn, wnd_sz, feature_extraction, on
         X_s.append(X_f)
     X_s = np.array(X_s)
     y_pred = rnn(X_s)
-    is_on.extend(y_pred)
+    is_on.extend(y_pred.cpu())
     is_on.extend(wnd_sz*[0])
 
     _, peaks_dict = find_peaks(is_on, plateau_size=[5, 20000])

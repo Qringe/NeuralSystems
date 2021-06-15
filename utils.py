@@ -1,7 +1,9 @@
 import os.path as path
 import os
+import pkg_resources
 import numpy as np
 import matplotlib
+import matplotlib.pyplot as plt
 from scipy.io import loadmat
 from scipy.interpolate import interp2d
 from joblib import dump, load
@@ -10,6 +12,7 @@ import random
 
 import torch
 from torch.utils.data import TensorDataset, DataLoader
+
 
 ##########################################################################################################################
 # Overview of this file:
@@ -21,8 +24,8 @@ from torch.utils.data import TensorDataset, DataLoader
 # Global parameters
 
 # Check if GPU is available
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-# DEVICE = "cpu"
+# DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = "cpu"
 
 # The list of available bird data
 BIRD_NAMES = ["g17y2", "g19o10", "g4p5", "R3428"]
@@ -35,6 +38,7 @@ MODEL_PATH = "Models/"
 PREDICTIONS_PATH = DATA_PATH + "Predictions/"
 
 SAMPLING_RATE = 32000
+TOLERANCE = 4
 
 ##########################################################################################################################
 # General functions
@@ -191,6 +195,7 @@ def normalize(X, mean=None, std=None):
         return (X - mean) / std
     else:
         return (X - torch.mean(X)) / torch.std(X)
+
 
 ##########################################################################################################################
 # Data-handling functions
