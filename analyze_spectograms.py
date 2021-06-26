@@ -141,8 +141,8 @@ class MyPlot(object):
                         )
 
         # Plot the labels for predictions and ground truth
-        plt.text(-150, 15, "Predictions", fontsize=20)
-        plt.text(-150, 45, "Ground truth", fontsize=20)
+        # plt.text(-150, 15, "Predictions", fontsize=20)
+        # plt.text(-150, 45, "Ground truth", fontsize=20)
 
         # Add all type 4 errors which lie inside the viewable window
         error_name = "Split\nerror"
@@ -356,7 +356,7 @@ def plot_predictions(bird_name, spectograms, predictions, analysis_dic=None, onl
 if __name__ == "__main__":
     # Choose one of your data files in the predictions folder
     # data_name = "predictions_base_CNN_R3428_hash_96e298.data"
-    data_name = "predictions_task4_cnn_transfer_learning_tsize100_R3428_R3428_hash_96e298.data"
+    data_name = "predictions_task4_cnn_transfer_learning_tsize100000_R3428_R3428_hash_96e298.data"
 
     # Automatically extract bird name from 'data_name'
     try:

@@ -100,9 +100,10 @@
 
 
 run_tasks = {
-    "task1": True,
-    "task3": True,
-    "task4": True
+    "task1": False,
+    "task3": False,
+    "task4": False,
+    "task4_transfer_learning": True
 }
 
 # Choose between "Local" and "Euler"
@@ -323,28 +324,27 @@ def task1(plot=True):
         if bird_name == "g4p5":
             continue
         
-        for online in online_mode:
-            for model in ["cnn"]: #, "rnn"]
-                for index, mode in enumerate(["online", "offline"]):
-                    scores = []
-                    accuracies = []
-                    precisions = []
-                    recalls = []
-                    
-                    for wnd_size in wnd_sizes:
-                        accuracies.append(results[bird_name][wnd_size][mode][model]["accuracy"])
-                        precisions.append(results[bird_name][wnd_size][mode][model]["precision"])
-                        recalls.append(results[bird_name][wnd_size][mode][model]["recall"])
-                    
-                    plt.figure(figsize=(9,6))
-                    plt.plot(wnd_sizes, accuracies, label = "Accuracy", marker='x')
-                    plt.plot(wnd_sizes, precisions, label = "Precision", marker='x')
-                    plt.plot(wnd_sizes, recalls, label = "Recall", marker='x')
-                    plt.grid(which="both")
-                    plt.title(f"Metrics of {model} on bird {bird_name} using {mode} mode")
-                    plt.xlabel("Window size")
-                    plt.ylabel("Metrics")
-                    plt.legend()
+        for model in ["cnn"]: #, "rnn"]
+            for index, mode in enumerate(["online", "offline"]):
+                scores = []
+                accuracies = []
+                precisions = []
+                recalls = []
+
+                for wnd_size in wnd_sizes:
+                    accuracies.append(results[bird_name][wnd_size][mode][model]["accuracy"])
+                    precisions.append(results[bird_name][wnd_size][mode][model]["precision"])
+                    recalls.append(results[bird_name][wnd_size][mode][model]["recall"])
+
+                plt.figure(figsize=(9,6))
+                plt.plot(wnd_sizes, accuracies, label = "Accuracy", marker='x')
+                plt.plot(wnd_sizes, precisions, label = "Precision", marker='x')
+                plt.plot(wnd_sizes, recalls, label = "Recall", marker='x')
+                plt.grid(which="both")
+                plt.title(f"Metrics of {model} on bird {bird_name} using {mode} mode")
+                plt.xlabel("Window size")
+                plt.ylabel("Metrics")
+                plt.legend()
 
 if run_tasks["task1"]:
     make_plots = True if execution_mode == "Local" else False
@@ -353,7 +353,7 @@ if run_tasks["task1"]:
 
 # ## Task 3
 
-# In[ ]:
+# In[9]:
 
 
 def task3(plot = True):
@@ -500,6 +500,7 @@ def task3(plot = True):
             plt.grid(which="both")
             plt.title(f"Metrics of {model} on bird {bird_name}")
             plt.xlabel("Training set size")
+            plt.xscale("log")
             plt.ylabel("Metrics")
             plt.legend()
 
@@ -510,7 +511,7 @@ if run_tasks["task3"]:
 
 # ## Task 4
 
-# In[ ]:
+# In[12]:
 
 
 def task4(plot = True):
@@ -714,4 +715,255 @@ def task4(plot = True):
 if run_tasks["task4"]:
     make_plots = True if execution_mode == "Local" else False
     task4(plot = make_plots)
+
+
+# ## Varying transfer-learning training data size
+
+# In[14]:
+
+
+def task4_transfer_learning(plot = True):
+    """
+    This function varies the training data set size for the transfer-learning approach
+    """
+    temp_dataset = load_bird_data(names=["g4p5"])
+    temp_dataset, _ = extract_labelled_spectograms(temp_dataset)
+    
+    # Set some general parameters
+    use_feature_extraction = False
+    wnd_sz = 20
+    if execution_mode == "Local":
+        limit = 100#70000
+        limits_transfer_learning = [10,20,30]
+    else:
+        limit = 80000
+        limits_transfer_learning = [10,100,1000,10000, 100000]
+    standardize = False
+    online = False
+
+    # Some RNN parameters
+    network_type = "gru"    # Choose from {'rnn', 'lstm', 'gru'}
+    num_layers = 1
+    hidden_size = 100
+
+    # The paths to the models
+    #base = path.dirname(path.abspath(__file__))
+    base = os.getcwd()
+    cnn_name = "task4_cnn_features_%s_wnd_sz_%s_limit_%s.model" % (use_feature_extraction, wnd_sz, limit)
+    cnn_path = path.join(base, MODEL_PATH+cnn_name)
+    rnn_name = "task4_rnn_type_%s_num_layers_%s_hidden_size_%s_features_%s_wnd_sz_%s_limit_%s.model" % (
+        network_type, num_layers, hidden_size, use_feature_extraction, wnd_sz, limit)
+    rnn_path = path.join(base, MODEL_PATH+rnn_name)
+    
+    # Check if the results of these experiments have already been computed
+    parameter_hash = hash_object([use_feature_extraction, wnd_sz, limit, standardize, online, network_type, num_layers, hidden_size])
+    result_path = PREDICTIONS_PATH + f"task4_transfer_learning_results_hash_{parameter_hash}"
+    
+    if path.isfile(result_path):
+        #(summaries_cnn, summaries_rnn) = load(result_path)
+        (summaries_cnn) = load(result_path)
+    else:
+
+        if not (path.isfile(cnn_path)):# and path.isfile(rnn_path)):
+            # Load the data and get all labelled spectograms
+            bird_data = load_bird_data(names=["g17y2"])
+
+            if standardize:
+                bird_data = standardize_data(bird_data, coarse_mode="per_spectogram", fine_mode="scalar")
+            data_labelled, _ = extract_labelled_spectograms(bird_data)
+
+            # Perform a train-validation-test split
+            data_train, data_test = train_test_split(bird_data=data_labelled, configs=0.33, seed=42)
+            data_val, data_test = train_test_split(bird_data=data_test, configs=0.5, seed=42)
+
+            # Extract the windows from the spectograms
+            windows_train, _ = create_windows(bird_data=data_train, wnd_sizes=wnd_sz, limits=limit, on_fracs=0.5, dt=5, seed=42)
+            windows_val, _ = create_windows(bird_data=data_val, wnd_sizes=wnd_sz, limits=int(limit/2), on_fracs=0.5, dt=5, seed=42)
+            windows_test, _ = create_windows(bird_data=data_test, wnd_sizes=wnd_sz, limits=int(limit/2), on_fracs=0.5, dt=5, seed=42)
+
+            X_train, y_train = flatten_windows_dic(windows_train[wnd_sz])
+            X_val, y_val = flatten_windows_dic(windows_val[wnd_sz])
+            X_test, y_test = flatten_windows_dic(windows_test[wnd_sz])
+
+            dataset = {
+                "train": (X_train, y_train),
+                "validation": (X_val, y_val),
+                "test": (X_test, y_test)
+            }
+
+            if not path.isfile(cnn_path):
+                cnn = train_CNN(dataset, cnn_name, normalize_input=True, online=online)
+            #if not path.isfile(rnn_path):
+            #    rnn = train_RNN(dataset, rnn_name, network_type=network_type, hidden_size=hidden_size,
+            #                    num_layers=num_layers, normalize_input=True, online=online)
+
+        # Load the CNN
+        cnn = load_cnn(cnn_path, wnd_sz, online=online)
+        #rnn = load_rnn(rnn_path, network_type, nfreq=128, hidden_size=hidden_size, num_layers=num_layers, device=DEVICE)
+
+        # Print the number of parameters
+        print("CNN has ", sum(p.numel() for p in cnn.parameters()), " parameters.")
+        # print("RNN has ", sum(p.numel() for p in rnn.parameters()), " parameters.")
+
+        cnn_wrapped = wrap_cnn(cnn, mode="for_spectograms")
+        # rnn_wrapped = wrap_rnn(rnn, mode="for_spectograms")
+        #compare_classifiers(dataset=None, model_dic={"cnn": cnn_wrapped, "rnn": rnn_wrapped}, print_summary=True)
+        
+        summaries_cnn = {}
+        #summaries_rnn = {}
+        
+        if execution_mode == "Local":
+            dataset = temp_dataset
+        elif execution_mode == "Euler":
+            dataset = None
+        
+        for limit_transfer_learning in limits_transfer_learning:
+            gc.collect()
+
+            transfer_model_dic_cnn = get_transfer_learning_models_CNN(
+                bird_names=["g19o10", "R3428"],
+                base_model=cnn,
+                arch=f"task4_cnn_transfer_learning_tsize{limit_transfer_learning}_",
+                wnd_sz=wnd_sz,
+                limit=limit_transfer_learning,
+                retrain_layers=4,
+                standardize_input=standardize)
+
+            gc.collect()
+
+            #transfer_model_dic_rnn = get_transfer_learning_models_RNN(
+            #    bird_names=["g19o10", "R3428"],
+            #    base_model=rnn,
+            #    arch="task4_rnn_transfer_learning_tsize{limit_transfer_learning}_",
+            #    wnd_sz=wnd_sz,
+            #    limit=limit_transfer_learning,
+            #    network_type=network_type,  # Choose from ["rnn","lstm","gru"]
+            #    hidden_size=hidden_size,
+            #    num_layers=num_layers,
+            #    retrain_layers=4,
+            #    nfreq=128,
+            #    standardize_input=standardize
+            #)
+
+            #gc.collect()
+
+            transfer_model_dic_cnn["base_CNN"] = cnn
+            #transfer_model_dic_rnn["base_RNN"] = rnn
+
+            for key in transfer_model_dic_cnn:
+                transfer_model_dic_cnn[key] = wrap_cnn(transfer_model_dic_cnn[key], mode="for_spectograms", normalize_input=True)
+
+            #for key in transfer_model_dic_rnn:
+            #    transfer_model_dic_rnn[key] = wrap_rnn(transfer_model_dic_rnn[key], mode="for_spectograms", normalize_input=True)
+
+            summary_cnn = compare_classifiers(dataset=dataset, model_dic=transfer_model_dic_cnn, print_summary=True)
+            #summary_rnn = compare_classifiers(dataset=dataset, model_dic=transfer_model_dic_rnn, print_summary=True)
+            
+            summaries_cnn[limit_transfer_learning] = summary_cnn
+            #summaries_rnn[limit_transfer_learning] = summary_rnn
+            
+        # Store the result to avoid recomputing everything the next time
+        #dump((summaries_cnn, summaries_rnn), result_path)
+        dump((summaries_cnn), result_path)
+        
+    if not plot:
+        return
+    
+    ################################################################################
+    # Plotting starts here
+    ################################################################################
+    # Some plot parameters
+    width = 0.2
+    metric_names = ["Score","Accuracy", "Precision", "Recall"]
+    x = np.arange(len(BIRD_NAMES)) # Amount of different bars to plot
+
+    summaries_whole = [summaries_cnn] #, summaries_rnn]
+    for index, model in enumerate(["CNN"]):#, "RNN"]):
+        ## First plot a summary of the base models over the different birds
+        summaries = summaries_whole[index]
+        scores = []
+        accuracies = []
+        precisions = []
+        recalls = []
+
+        summary = summaries[limits_transfer_learning[-1]]
+        if execution_mode == "Local":
+            # Extract the different metrics
+            for bird_name in ["g4p5"]:
+                scores.append(summary[bird_name]['base_'+model]["score_mean"])
+                accuracies.append(summary[bird_name]['base_'+model]["accuracy"])
+                precisions.append(summary[bird_name]['base_'+model]["precision"])
+                recalls.append(summary[bird_name]['base_'+model]["recall"])
+        elif execution_mode == "Euler":
+            # Extract the different metrics
+            for bird_name in BIRD_NAMES:
+                scores.append(summary[bird_name]['base_'+model]["score_mean"])
+                accuracies.append(summary[bird_name]['base_'+model]["accuracy"])
+                precisions.append(summary[bird_name]['base_'+model]["precision"])
+                recalls.append(summary[bird_name]['base_'+model]["recall"])
+
+        metrics = [scores, accuracies, precisions, recalls]
+
+        # Make the first plots showing how the base models performed over all birds
+        plt.figure(figsize=(9,6))
+        for i in range(len(metrics)):
+            plt.bar(x + i * width, metrics[i], width, label = metric_names[i])
+        plt.grid(which="both")
+        plt.title(f"Generalization of {model} trained on {BIRD_NAMES[0]}")
+        plt.xticks(x + 1.5 * width, BIRD_NAMES)
+        plt.xlabel("Bird")
+        plt.ylabel("Metrics")
+        plt.legend(loc='lower left')
+        print("After plot")
+        
+        for limit_transfer_learning in limits_transfer_learning:
+            summary = summaries[limit_transfer_learning]
+            
+            # Now generate the second type of plots showing how transfer learning improved the situation
+            x = np.array([0,1.5,3,4.5])
+            x2 = np.array([0,0.75,1.5,3,3.75,4.5])
+            scores = []
+            accuracies = []
+            precisions = []
+            recalls = []
+            
+            if execution_mode == "Local":
+                small_bird_name = "g4p5"
+                for bird_name in ["g19o10", "R3428"]:
+                    scores.append(summary[small_bird_name]['base_'+model]["score_mean"])
+                    scores.append(summary[small_bird_name][f'task4_' + model.lower() + f'_transfer_learning_tsize{limit_transfer_learning}'+"_"+bird_name]["score_mean"])
+                    accuracies.append(summary[small_bird_name]['base_'+model]["accuracy"])
+                    accuracies.append(summary[small_bird_name][f'task4_' + model.lower() + f'_transfer_learning_tsize{limit_transfer_learning}'+"_"+bird_name]["accuracy"])
+                    precisions.append(summary[small_bird_name]['base_'+model]["precision"])
+                    precisions.append(summary[small_bird_name][f'task4_' + model.lower() + f'_transfer_learning_tsize{limit_transfer_learning}'+"_"+bird_name]["precision"])
+                    recalls.append(summary[small_bird_name]['base_'+model]["recall"])
+                    recalls.append(summary[small_bird_name][f'task4_' + model.lower() + f'_transfer_learning_tsize{limit_transfer_learning}'+"_"+bird_name]["recall"])
+            elif execution_mode == "Euler":
+                for bird_name in ["g19o10", "R3428"]:
+                    scores.append(summary[bird_name]['base_'+model]["score_mean"])
+                    scores.append(summary[bird_name][f'task4_' + model.lower() + f'_transfer_learning_tsize{limit_transfer_learning}'+"_"+bird_name]["score_mean"])
+                    accuracies.append(summary[bird_name]['base_'+model]["accuracy"])
+                    accuracies.append(summary[bird_name][f'task4_' + model.lower() + f'_transfer_learning_tsize{limit_transfer_learning}'+"_"+bird_name]["accuracy"])
+                    precisions.append(summary[bird_name]['base_'+model]["precision"])
+                    precisions.append(summary[bird_name][f'task4_' + model.lower() + f'_transfer_learning_tsize{limit_transfer_learning}'+"_"+bird_name]["precision"])
+                    recalls.append(summary[bird_name]['base_'+model]["recall"])
+                    recalls.append(summary[bird_name][f'task4_' + model.lower() + f'_transfer_learning_tsize{limit_transfer_learning}'+"_"+bird_name]["recall"])
+
+            metrics = [scores, accuracies, precisions, recalls]
+
+            # Make the first plots showing how the base models performed over all birds
+            plt.figure(figsize=(12,6))
+            for i in range(len(metrics)):
+                plt.bar(x + i * width, metrics[i], width, label = metric_names[i])
+            plt.grid(which="both")
+            plt.title(f"Transfer-learning of {model}")
+            plt.xticks(x2 + 1.5 * width,[f"Base {model}", "\ng19o10", f"{model}_g19o10", f"Base {model}", "\nR3428", f"{model}_R3428"])
+            plt.xlabel("Bird")
+            plt.ylabel("Metrics")
+            plt.legend(loc='lower left')
+            plt.show()
+
+if run_tasks["task4_transfer_learning"]:
+    make_plots = True if execution_mode == "Local" else False
+    task4_transfer_learning(plot = make_plots)
 
