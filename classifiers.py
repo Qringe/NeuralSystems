@@ -12,7 +12,7 @@ from utils import (
     BirdDataLoader, normalize,
     DATA_PATH, MODEL_PATH,
     DEVICE, load_bird_data,
-    extract_labelled_spectograms,
+    extract_labelled_spectrograms,
     train_test_split, create_windows,
     standardize_data
 )
@@ -27,9 +27,9 @@ from utils import (
 # SVM stuff
 # NOTE: The SVM logic is currently not maintained due to the enormous training/prediction times of the SVM
 '''
-def predict_syllables_SVM(X,idx_spectogram,clf,wnd_sz,feature_extraction):
+def predict_syllables_SVM(X,idx_spectrogram,clf,wnd_sz,feature_extraction):
     """
-    Take 128 x T sized spectogram and predict the on and off of syllables using SVM
+    Take 128 x T sized spectrogram and predict the on and off of syllables using SVM
     """
     w = int(wnd_sz / 2)
     is_on = w * [0]
@@ -48,7 +48,7 @@ def predict_syllables_SVM(X,idx_spectogram,clf,wnd_sz,feature_extraction):
     _, peaks_dict = find_peaks(is_on, plateau_size=[5,200])
     le = peaks_dict['left_edges']
     re = peaks_dict['right_edges']
-    return_tuples = [(a,b,idx_spectogram) for a,b in zip(le,re)]
+    return_tuples = [(a,b,idx_spectrogram) for a,b in zip(le,re)]
     return return_tuples
 
 def train_SVM(X,y,model_name):
@@ -82,9 +82,9 @@ def train_SVM(X,y,model_name):
 # CNN stuff
 
 
-def wrap_cnn(cnn, mode="for_spectograms", normalize_input=True, online=False):
+def wrap_cnn(cnn, mode="for_spectrograms", normalize_input=True, online=False):
     """
-    mode has to be one of ["for_spectograms", "for_windows"]
+    mode has to be one of ["for_spectrograms", "for_windows"]
     """
     # Check if the input is just a wrapper function or the real cnn
     if hasattr(cnn, "cnn"):
@@ -100,30 +100,30 @@ def wrap_cnn(cnn, mode="for_spectograms", normalize_input=True, online=False):
         pred = real_cnn(X)
         return torch.argmax(pred, dim=1)
 
-    def spectogram_wrapper(spectogram, idx):
+    def spectrogram_wrapper(spectrogram, idx):
         """
-        'spectogram': A whole spectogram
-        'idx': The index which the tuples corresponding to this spectogram should have
+        'spectrogram': A whole spectrogram
+        'idx': The index which the tuples corresponding to this spectrogram should have
         """
         return predict_syllables_CNN(
-            spectogram, idx, window_wrapper, wnd_sz=real_cnn.wnd_sz,
+            spectrogram, idx, window_wrapper, wnd_sz=real_cnn.wnd_sz,
             feature_extraction=real_cnn.feature_extraction, online=online)
 
     if mode == "for_windows":
         window_wrapper.is_wrapped = "for_windows"
         window_wrapper.cnn = real_cnn
         return window_wrapper
-    elif mode == "for_spectograms":
-        spectogram_wrapper.is_wrapped = "for_spectograms"
-        spectogram_wrapper.cnn = real_cnn
-        return spectogram_wrapper
+    elif mode == "for_spectrograms":
+        spectrogram_wrapper.is_wrapped = "for_spectrograms"
+        spectrogram_wrapper.cnn = real_cnn
+        return spectrogram_wrapper
     else:
-        raise Exception(f"The mode '{mode}' does not exist! Please choose from ['for_spectograms', 'for_windows']")
+        raise Exception(f"The mode '{mode}' does not exist! Please choose from ['for_spectrograms', 'for_windows']")
 
 
-def predict_syllables_CNN(X, idx_spectogram, cnn, wnd_sz, feature_extraction, online=False):
+def predict_syllables_CNN(X, idx_spectrogram, cnn, wnd_sz, feature_extraction, online=False):
     """
-    Take 128 x T sized spectogram and predict the on and off of syllables using CNN
+    Take 128 x T sized spectrogram and predict the on and off of syllables using CNN
     """
     is_on = wnd_sz * [0]
     X_s = []
@@ -145,7 +145,7 @@ def predict_syllables_CNN(X, idx_spectogram, cnn, wnd_sz, feature_extraction, on
     _, peaks_dict = find_peaks(is_on, plateau_size=[5, 20000])
     le = peaks_dict['left_edges']
     re = peaks_dict['right_edges']
-    return_tuples = [(a, b, idx_spectogram) for a, b in zip(le, re)]
+    return_tuples = [(a, b, idx_spectrogram) for a, b in zip(le, re)]
     return return_tuples
 
 
@@ -235,17 +235,17 @@ def get_transfer_learning_models_CNN(
     base = path.dirname(path.abspath(__file__))
     output_models = {}
 
-    # Load the data and get all labelled spectograms
+    # Load the data and get all labelled spectrograms
     bird_data = load_bird_data(names=bird_names)
     if standardize_input:
         bird_data = standardize_data(bird_data)
-    data_labelled, _ = extract_labelled_spectograms(bird_data)
+    data_labelled, _ = extract_labelled_spectrograms(bird_data)
 
     # Perform a train-validation-test split
     data_train, data_test = train_test_split(bird_data=data_labelled, configs=0.33, seed=42)
     data_val, data_test = train_test_split(bird_data=data_test, configs=0.5, seed=42)
 
-    # Extract the windows from the spectograms
+    # Extract the windows from the spectrograms
     windows_train, _ = create_windows(bird_data=data_train, wnd_sizes=wnd_sz, limits=limit, on_fracs=0.5, dt=5, seed=42)
     windows_val, _ = create_windows(bird_data=data_val, wnd_sizes=wnd_sz, limits=int(limit/2), on_fracs=0.5, dt=5, seed=42)
     windows_test, _ = create_windows(bird_data=data_test, wnd_sizes=wnd_sz, limits=int(limit/2), on_fracs=0.5, dt=5, seed=42)
@@ -415,9 +415,9 @@ def get_CNN_architecture(wnd_sz, online=False):
 # RNN stuff
 
 
-def wrap_rnn(rnn, mode="for_spectograms", normalize_input=True, online=False):
+def wrap_rnn(rnn, mode="for_spectrograms", normalize_input=True, online=False):
     """
-    mode has to be one of ["for_spectograms", "for_windows"]
+    mode has to be one of ["for_spectrograms", "for_windows"]
     """
     # Check if the input rnn is the real rnn or just a wrapper function
     if hasattr(rnn, "rnn"):
@@ -437,25 +437,25 @@ def wrap_rnn(rnn, mode="for_spectograms", normalize_input=True, online=False):
         pred = real_rnn(X)
         return torch.argmax(pred, dim=1)
 
-    def spectogram_wrapper(spectogram, idx):
-        return predict_syllables_RNN(spectogram, idx, window_wrapper, wnd_sz=real_rnn.wnd_sz,
+    def spectrogram_wrapper(spectrogram, idx):
+        return predict_syllables_RNN(spectrogram, idx, window_wrapper, wnd_sz=real_rnn.wnd_sz,
                                      feature_extraction=real_rnn.feature_extraction, online=online)
 
     if mode == "for_windows":
         window_wrapper.is_wrapped = "for_windows"
         window_wrapper.rnn = real_rnn
         return window_wrapper
-    elif mode == "for_spectograms":
-        spectogram_wrapper.is_wrapped = "for_spectograms"
-        spectogram_wrapper.rnn = real_rnn
-        return spectogram_wrapper
+    elif mode == "for_spectrograms":
+        spectrogram_wrapper.is_wrapped = "for_spectrograms"
+        spectrogram_wrapper.rnn = real_rnn
+        return spectrogram_wrapper
     else:
-        raise Exception(f"The mode '{mode}' does not exist! Please choose from ['for_spectograms', 'for_windows']")
+        raise Exception(f"The mode '{mode}' does not exist! Please choose from ['for_spectrograms', 'for_windows']")
 
 
-def predict_syllables_RNN(X, idx_spectogram, rnn, wnd_sz, feature_extraction, online=False):
+def predict_syllables_RNN(X, idx_spectrogram, rnn, wnd_sz, feature_extraction, online=False):
     """
-    Take 128 x T sized spectogram and predict the on and off of syllables using CNN
+    Take 128 x T sized spectrogram and predict the on and off of syllables using CNN
     """
     is_on = wnd_sz * [0]
     X_s = []
@@ -477,7 +477,7 @@ def predict_syllables_RNN(X, idx_spectogram, rnn, wnd_sz, feature_extraction, on
     _, peaks_dict = find_peaks(is_on, plateau_size=[5, 20000])
     le = peaks_dict['left_edges']
     re = peaks_dict['right_edges']
-    return_tuples = [(a, b, idx_spectogram) for a, b in zip(le, re)]
+    return_tuples = [(a, b, idx_spectrogram) for a, b in zip(le, re)]
     return return_tuples
 
 
@@ -502,7 +502,7 @@ def train_RNN(
         dset="test", shuffle=True, num_workers=4, batch_size=64
     )
 
-    # Figure out window size and the number of rows in the spectogram
+    # Figure out window size and the number of rows in the spectrogram
     nfreq, wnd_sz = dataloader.nfreq, dataloader.wnd_sz
 
     # Set the seed
@@ -607,17 +607,17 @@ def get_transfer_learning_models_RNN(
     base = path.dirname(path.abspath(__file__))
     output_models = {}
 
-    # Load the data and get all labelled spectograms
+    # Load the data and get all labelled spectrograms
     bird_data = load_bird_data(names=bird_names)
     if standardize_input:
         bird_data = standardize_data(bird_data)
-    data_labelled, _ = extract_labelled_spectograms(bird_data)
+    data_labelled, _ = extract_labelled_spectrograms(bird_data)
 
     # Perform a train-validation-test split
     data_train, data_test = train_test_split(bird_data=data_labelled, configs=0.33, seed=42)
     data_val, data_test = train_test_split(bird_data=data_test, configs=0.5, seed=42)
 
-    # Extract the windows from the spectograms
+    # Extract the windows from the spectrograms
     windows_train, _ = create_windows(bird_data=data_train, wnd_sizes=wnd_sz, limits=limit, on_fracs=0.5, dt=5, seed=42)
     windows_val, _ = create_windows(bird_data=data_val, wnd_sizes=wnd_sz, limits=int(limit/2), on_fracs=0.5, dt=5, seed=42)
     windows_test, _ = create_windows(bird_data=data_test, wnd_sizes=wnd_sz, limits=int(limit/2), on_fracs=0.5, dt=5, seed=42)

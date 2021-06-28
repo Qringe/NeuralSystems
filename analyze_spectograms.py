@@ -11,12 +11,12 @@ from utils import (
     DEVICE, BIRD_NAMES, DATA_PATH, MODEL_PATH, PREDICTIONS_PATH,
 
     # Data handling functions
-    load_bird_data, extract_labelled_spectograms, train_test_split,
+    load_bird_data, extract_labelled_spectrograms, train_test_split,
     extract_birds, create_windows, store_birds, load_birds, store_dataset,
     load_dataset, flatten_windows_dic, standardize_data,
 
     # Other stuff
-    hash_spectograms, tuples2vector, score_predictions
+    hash_spectrograms, tuples2vector, score_predictions
 )
 
 from analyze_errors import analyze_errors
@@ -28,14 +28,14 @@ class MyPlot(object):
     using a button and a scrollbar.
     '''
 
-    def __init__(self, bird_name, spectograms, predictions, analysis_dic=None, only_errors=False, view_width=1000):
+    def __init__(self, bird_name, spectrograms, predictions, analysis_dic=None, only_errors=False, view_width=1000):
         self.ind = 0
         self.bird_name = bird_name
-        self.length = len(spectograms)
-        self.spectograms = spectograms
+        self.length = len(spectrograms)
+        self.spectrograms = spectrograms
         self.predictions = predictions
         self.view_width = view_width
-        self.changed_spectogram = False
+        self.changed_spectrogram = False
         self.show_type1_errors = True
         self.show_type2_errors = True
         self.show_type3_errors = True
@@ -44,11 +44,11 @@ class MyPlot(object):
         self.analysis_dic = analysis_dic
         self.annotations = []
         self.fig, self.ax = plt.subplots()
-        self.plot_spectogram()
+        self.plot_spectrogram()
 
-    def plot_spectogram(self, artists=["all"]):
+    def plot_spectrogram(self, artists=["all"]):
         '''
-        Plot the spectogram number 'self.ind' together with the predictions, the true syllables
+        Plot the spectrogram number 'self.ind' together with the predictions, the true syllables
         and the different errors
         '''
         # Local variables used in this function
@@ -66,8 +66,8 @@ class MyPlot(object):
         tuples_predicted = self.predictions[self.ind]["y_pred"]
         tuples_gt = self.predictions[self.ind]["y_true"]
 
-        # Get the current spectogram and the left and right border of the viewable window
-        current_spec = self.spectograms[self.ind]
+        # Get the current spectrogram and the left and right border of the viewable window
+        current_spec = self.spectrograms[self.ind]
         _, current_spec_width = current_spec.shape
         left_border_column = round(self.left_border * current_spec_width / 100)
         right_border_column = round(self.right_border * current_spec_width / 100)
@@ -84,7 +84,7 @@ class MyPlot(object):
         # A list containing all the errors
         errors = []
 
-        # Plot the spectogram
+        # Plot the spectrogram
         self.ax.imshow(current_spec)
 
         # Add the predictions in red
@@ -225,13 +225,13 @@ class MyPlot(object):
         def iterate_inner(event):
             '''
             This function is used by the 'next' and 'prev' buttons. It first updates
-            the index 'ind', then the scrollbar and finally it plots the 'ind'th spectogram
+            the index 'ind', then the scrollbar and finally it plots the 'ind'th spectrogram
             '''
             self.ind += amount
             self.ind = self.ind % self.length
-            self.changed_spectogram = True
+            self.changed_spectrogram = True
             self.slider.set_val((-1, 101))
-            self.plot_spectogram()
+            self.plot_spectrogram()
 
         return iterate_inner
 
@@ -257,14 +257,14 @@ class MyPlot(object):
         else:
             self.show_type4_errors = not self.show_type4_errors
 
-        # Update the spectogram view
-        self.plot_spectogram(artists=["annotations"])
+        # Update the spectrogram view
+        self.plot_spectrogram(artists=["annotations"])
 
     def get_slider_init(self):
-        # Get the current spectogram
-        current_spec = self.spectograms[self.ind]
+        # Get the current spectrogram
+        current_spec = self.spectrograms[self.ind]
 
-        # Compute the width of the scrollbar for this spectogram
+        # Compute the width of the scrollbar for this spectrogram
         _, num_cols = current_spec.shape
         scroll_width = round(100 * min(self.view_width, num_cols) / num_cols)
 
@@ -293,9 +293,9 @@ class MyPlot(object):
 
             # Otherwise set the new middle of the scrollbar to the point
             # where the user clicked
-            elif self.changed_spectogram:
+            elif self.changed_spectrogram:
                 new_middle = half_slider_length
-                self.changed_spectogram = False
+                self.changed_spectrogram = False
             elif pos[0] != self.left_border:
                 new_middle = int(pos[0])
             else:
@@ -315,15 +315,15 @@ class MyPlot(object):
             self.left_border = new_middle - half_slider_length
             self.right_border = new_middle + half_slider_length
 
-            # Update the spectogram view
-            self.plot_spectogram()
+            # Update the spectrogram view
+            self.plot_spectrogram()
 
         return update_view
 
 
-def plot_predictions(bird_name, spectograms, predictions, analysis_dic=None, only_errors=False):
+def plot_predictions(bird_name, spectrograms, predictions, analysis_dic=None, only_errors=False):
     # Initialize the plot
-    my_plot = MyPlot(bird_name, spectograms, predictions, analysis_dic, only_errors=False)
+    my_plot = MyPlot(bird_name, spectrograms, predictions, analysis_dic, only_errors=False)
 
     # Initialize the buttons
     button_next = Button(plt.axes([0.81, 0.05, 0.1, 0.075]), 'Next')
@@ -348,7 +348,7 @@ def plot_predictions(bird_name, spectograms, predictions, analysis_dic=None, onl
         )
     slider.on_changed(my_plot.build_update_view(slider))
 
-    # Plot the first spectogram
+    # Plot the first spectrogram
     # plt.tight_layout(pad=0.1, w_pad=0.1, h_pad=0.1)
     plt.show()
 
@@ -378,10 +378,10 @@ if __name__ == "__main__":
     # Analyze the errors of the predictions
     analysis_dic = analyze_errors(prediction_list)
 
-    # Load the spectograms corresponding to this prediction
-    print(f"Loading spectograms of bird {bird_name}")
+    # Load the spectrograms corresponding to this prediction
+    print(f"Loading spectrograms of bird {bird_name}")
     bird_data = load_bird_data(bird_name)
-    bird_data, _ = extract_labelled_spectograms(bird_data)
+    bird_data, _ = extract_labelled_spectrograms(bird_data)
 
     print("Plotting predictions")
     plot_predictions(bird_name, bird_data[bird_name]["Xs_train"], prediction_list, analysis_dic)

@@ -1,6 +1,5 @@
 import os.path as path
 import os
-import pkg_resources
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -34,7 +33,7 @@ BIRD_NAMES = ["g17y2", "g19o10", "g4p5", "R3428"]
 DATA_PATH = "Data/"
 DATASET_PATH = DATA_PATH + "Datasets/"
 BIRD_DATA_PATH = DATA_PATH + "Bird_Data/"
-MODEL_PATH = "Models/"
+MODEL_PATH = "Models/All/"
 PREDICTIONS_PATH = DATA_PATH + "Predictions/"
 
 SAMPLING_RATE = 32000
@@ -49,7 +48,7 @@ def tuples2vector(meta_tuples):
     Takes as input a list of tuples of the form:
         (
             [ (on1, off1, spec), (on2, off2, spec), ... ],    # A list of tuples denoting syllable positions
-            length  # Length of the spectogram from which the above syllables are taken from
+            length  # Length of the spectrogram from which the above syllables are taken from
         )
     The list is then converted to a long array of 0s and 1s. Example:
         Input: A list containing a single tuple:
@@ -64,21 +63,21 @@ def tuples2vector(meta_tuples):
     output_vec = []
 
     for tup in meta_tuples:
-        # Extract the syllables and create an output vector for this spectogram
+        # Extract the syllables and create an output vector for this spectrogram
         tuples, length = tup
         temp_vec = np.zeros(length, dtype=np.int8)
 
-        # Check that tuples are all from the same spectogram
+        # Check that tuples are all from the same spectrogram
         spec_ids = set([t[2] for t in tuples])
         if len(spec_ids) > 1:
-            raise Exception(f"All tuples in a list have to come from the same spectogram! Got ids {spec_ids}")
+            raise Exception(f"All tuples in a list have to come from the same spectrogram! Got ids {spec_ids}")
 
         # Iterate through all syllables and set the corresponding area in 'temp_vec' to 1
         for syllable in tuples:
             on, off, idx = syllable[:3]
             temp_vec[on:off+1] = 1
 
-        # Append the output vector with the output from this spectogram
+        # Append the output vector with the output from this spectrogram
         output_vec.extend(temp_vec.tolist())
 
     return output_vec
@@ -86,23 +85,23 @@ def tuples2vector(meta_tuples):
 
 def score_predictions(y_true, y_pred, tolerance=4):
     """
-    The function used to score the predictions for a spectogram
+    The function used to score the predictions for a spectrogram
     """
     t_onset = list(map(lambda tup: tup[0], y_true))
     t_offset = list(map(lambda tup: tup[1], y_true))
     p_onset = list(map(lambda tup: tup[0], y_pred))
     p_offset = list(map(lambda tup: tup[1], y_pred))
 
-    # If there are tuples from multiple spectograms, throw an error
+    # If there are tuples from multiple spectrograms, throw an error
     spec_ids_true = set(map(lambda tup: tup[2], y_true))
     spec_ids_pred = set(map(lambda tup: tup[2], y_pred))
 
     if len(spec_ids_pred) > 1 or len(spec_ids_true) > 1:
-        print("The true labels contain the spectograms = ", spec_ids_true)
-        print("The predicted labels contain the spectograms = ", spec_ids_pred)
+        print("The true labels contain the spectrograms = ", spec_ids_true)
+        print("The predicted labels contain the spectrograms = ", spec_ids_pred)
         raise Exception(
-            "The function 'score_predictions' can only score tuples from a single spectogram." +
-            "You provided tuples from multiple spectograms!")
+            "The function 'score_predictions' can only score tuples from a single spectrogram." +
+            "You provided tuples from multiple spectrograms!")
 
     TP = 0
     FP = 0
@@ -145,13 +144,13 @@ def score_predictions(y_true, y_pred, tolerance=4):
     return acc_rate
 
 
-def hash_spectograms(spectograms, ndigits=6):
+def hash_spectrograms(spectrograms, ndigits=6):
     """
     Just a small deterministic hashfunction. This function is used to identify files.
     The parameter 'ndigits' denotes the amount of digits of the hash which shall be returned
     """
     h = ""
-    for spec in spectograms:
+    for spec in spectrograms:
         h += sha256(spec).hexdigest()
     return sha256(h.encode('utf-8')).hexdigest()[-ndigits:]
 
@@ -174,7 +173,7 @@ def extract_features(X):
     return [np.mean(X), np.std(X), np.median(X), np.mean(np.abs(X)), np.max(X)-np.min(X)]
 
 
-def plot_spectogram(ax, X, tuples_predicted, tuples_gt):
+def plot_spectrogram(ax, X, tuples_predicted, tuples_gt):
     ax.imshow(np.flip(X, axis=0))
     for t_p in tuples_predicted:
         ax.add_patch(matplotlib.patches.Rectangle((t_p[0], 0), t_p[1]-t_p[0], 15, linewidth=2,
@@ -239,8 +238,8 @@ def load_bird_data(names=None, indices=None, drop_unlabelled=False, resample=SAM
     The parameter 'names' has priority over the parameter 'indices'. If you specify both
     parameters, then only 'names' will be read.
 
-    The parameter 'resample' can either have the boolean value 'False', indicating that no spectograms
-    should be resampled, or an integer value, in which case the spectograms get resampled to the sample rate
+    The parameter 'resample' can either have the boolean value 'False', indicating that no spectrograms
+    should be resampled, or an integer value, in which case the spectrograms get resampled to the sample rate
     indicated by 'resample'
 
     If you don't specify any parameters, the data of all birds will be returned.
@@ -279,7 +278,7 @@ def load_bird_data(names=None, indices=None, drop_unlabelled=False, resample=SAM
         offs = annotations["y"][0]["offset_columns"][0][0][0]-1
         ground_truth_tuples = [(a, b, c, bird) for a, b, c in zip(ons, offs, SETindex)]
 
-        # NOTE: The 'order = C' is required to make the hash function 'hash_spectograms' work properly!
+        # NOTE: The 'order = C' is required to make the hash function 'hash_spectrograms' work properly!
         for i in range(len(Xs_train)):
             Xs_train[i] = Xs_train[i].copy(order='C')
             Xs_train[i] = Xs_train[i].astype(np.float)
@@ -300,15 +299,15 @@ def load_bird_data(names=None, indices=None, drop_unlabelled=False, resample=SAM
                                       new_frequencies=SAMPLING_RATE, name="on_load")
 
     if drop_unlabelled:
-        bird_data, unlabelled_data = extract_labelled_spectograms(bird_data)
+        bird_data, unlabelled_data = extract_labelled_spectrograms(bird_data)
 
     return bird_data
 
 
-def extract_labelled_spectograms(bird_data):
+def extract_labelled_spectrograms(bird_data):
     """
     Takes as input a dictionary containing the data of different birds (as returned by the function 'load_bird_data') and
-    splits the data of each bird into a set of spectograms which are labelled and a set of spectograms which are unlabelled.
+    splits the data of each bird into a set of spectrograms which are labelled and a set of spectrograms which are unlabelled.
 
     'bird_data' should have the form:
         {
@@ -316,9 +315,9 @@ def extract_labelled_spectograms(bird_data):
             "bird_name2": {"Xs_train" : Xs_train, "tuples" : ground_truth_tuples, "ids_labelled" : ids_labelled},
             ...
         }
-    where "Xs_train" is a list of spectograms and "tuples" a list of tuples of the form (on,off,SETindex,bird_name) denoting
-    the start (on) and end (off) of a syllable, and the spectogram index (SETindex) of said syllable, and the name of the bird
-    (bird_name) from which the syllable stems from. Finally, "ids_labelled" is a list of spectograms which are actually labelled.
+    where "Xs_train" is a list of spectrograms and "tuples" a list of tuples of the form (on,off,SETindex,bird_name) denoting
+    the start (on) and end (off) of a syllable, and the spectrogram index (SETindex) of said syllable, and the name of the bird
+    (bird_name) from which the syllable stems from. Finally, "ids_labelled" is a list of spectrograms which are actually labelled.
     """
     bird_data_labelled = {}
     bird_data_unlabelled = {}
@@ -333,7 +332,7 @@ def extract_labelled_spectograms(bird_data):
         tuples_whole = bird_data[bird_name]["tuples"]
         ids_labelled = bird_data[bird_name]["ids_labelled"]
 
-        # Get the ids of all unlabelled spectograms
+        # Get the ids of all unlabelled spectrograms
         ids_unlabelled = np.delete(np.array(range(len(Xs_train_whole))), ids_labelled)
 
         # A dictionary which maps the old ids of 'ids_labelled' to a contiguous range 0-len(ids_labelled)
@@ -358,7 +357,7 @@ def extract_labelled_spectograms(bird_data):
 def train_test_split(bird_data, configs=None, seed=None):
     """
     Takes as input a dictionary containing the data of different birds (as returned by the function
-    'extract_labelled_spectograms') and uses the configuration dictionary 'configs' to split each of the items of the
+    'extract_labelled_spectrograms') and uses the configuration dictionary 'configs' to split each of the items of the
     'bird_data' dict into a training and test set.
 
     'bird_data' should have the form:
@@ -367,14 +366,14 @@ def train_test_split(bird_data, configs=None, seed=None):
             "bird_name2": {"Xs_train" : Xs_train, "tuples" : ground_truth_tuples},
             ...
         }
-    where "Xs_train" is a list of spectograms and "tuples" a list of tuples of the form (on,off,SETindex,bird_name) denoting
-    the start (on) and end (off) of a syllable, and the spectogram index (SETindex) of said syllable, and the name of the bird
+    where "Xs_train" is a list of spectrograms and "tuples" a list of tuples of the form (on,off,SETindex,bird_name) denoting
+    the start (on) and end (off) of a syllable, and the spectrogram index (SETindex) of said syllable, and the name of the bird
     (bird_name) from which the syllable stems from.
 
     'configs' can be either (a) an integer, (b) a float, or (c) a dictionary of ints/floats.
-        (a) If 'configs' is an integer 'i', then the function will put exactly 'i' random spectograms per bird in the test set.
+        (a) If 'configs' is an integer 'i', then the function will put exactly 'i' random spectrograms per bird in the test set.
         (b) If 'configs' is a float 0 <= f <= 1, then this function will put for each bird exactly a fraction 'f' of all
-            spectograms into the test set.
+            spectrograms into the test set.
         (c) If 'configs' is a dictionary it should have the form:
                 {
                     "bird_name1": freq1 or tot1,
@@ -475,13 +474,13 @@ def resample_data(bird_data, bird_names, old_frequencies, new_frequencies, name,
             ...
         }
 
-    'name' is used to check whether the spectogram data has already been resampled once.
+    'name' is used to check whether the spectrogram data has already been resampled once.
 
     'kind' specifies how the 2d interpolation shall be done. This function performs spline interpolation. The parameter 'kind'
     can set the degree of the splines. Possible values are: ["linear", "cubic", "quintic"]
 
     If 'read_cache == True', then the
-    function first checks, whether the spectograms have already been resampled once (i.e.
+    function first checks, whether the spectrograms have already been resampled once (i.e.
     whether a file with name 'name' already exists) and if so, loads the data.
 
     If 'write_cache==True' then the function will store the computed results.
@@ -500,49 +499,49 @@ def resample_data(bird_data, bird_names, old_frequencies, new_frequencies, name,
 
     # Iterate over all birds whose data should be resampled
     for bird_name in bird_names:
-        spectograms = bird_data[bird_name]["Xs_train"]
+        spectrograms = bird_data[bird_name]["Xs_train"]
         tuples = bird_data[bird_name]["tuples"]
 
         # Check if the data has already been resampled once and if so, load it
-        storage_path = path.join(base, DATASET_PATH + f"resampled_{name}_{bird_name}_hash_{hash_spectograms(spectograms)}.data")
+        storage_path = path.join(base, DATASET_PATH + f"resampled_{name}_{bird_name}_hash_{hash_spectrograms(spectrograms)}.data")
         if read_cache and path.isfile(storage_path):
             print("Load cached resampled data of bird ", bird_name)
             bird_data[bird_name] = load(storage_path)
             continue
 
-        print("Resampling spectograms of bird ", bird_name)
+        print("Resampling spectrograms of bird ", bird_name)
 
         old_freq = old_frequencies[bird_name]
         new_freq = new_frequencies[bird_name]
 
-        new_spectograms = []
+        new_spectrograms = []
         new_tuples = []
 
-        # Iterate over all spectograms of this bird
-        for index, spectogram in enumerate(spectograms):
+        # Iterate over all spectrograms of this bird
+        for index, spectrogram in enumerate(spectrograms):
             if index % 20 == 0:
-                print(index, " / ", len(spectograms))
+                print(index, " / ", len(spectrograms))
 
-            # Compute the length of the spectogram in seconds
-            rows, cols_old = spectogram.shape
+            # Compute the length of the spectrogram in seconds
+            rows, cols_old = spectrogram.shape
             seconds = rows * cols_old / old_freq
 
-            # Compute the dimensions of the new spectogram
+            # Compute the dimensions of the new spectrogram
             cols_new = round(seconds * new_freq / rows)
 
             # Compute for each column the corresponding time index
             old_time_stamps = np.linspace(0, seconds, cols_old)
 
-            # Create the timestamps for the resampled spectogram
+            # Create the timestamps for the resampled spectrogram
             new_time_stamps = np.linspace(0, seconds, cols_new)
 
             # Build an interpolation function using the old timestamps and data
-            func = interp2d(x=old_time_stamps, y=list(range(rows)), z=spectogram, kind=kind, copy=False)
+            func = interp2d(x=old_time_stamps, y=list(range(rows)), z=spectrogram, kind=kind, copy=False)
 
-            # Get the resampled spectogram values using the interpolation function 'func'
-            resampled_spectogram = func(x=new_time_stamps, y=list(range(rows)))
+            # Get the resampled spectrogram values using the interpolation function 'func'
+            resampled_spectrogram = func(x=new_time_stamps, y=list(range(rows)))
 
-            new_spectograms.append(resampled_spectogram)
+            new_spectrograms.append(resampled_spectrogram)
 
             # Adjust the start and end of the syllable tuples
             current_tuples = [tup for tup in tuples if tup[2] == index]
@@ -559,10 +558,10 @@ def resample_data(bird_data, bird_names, old_frequencies, new_frequencies, name,
 
             new_tuples.extend(resampled_tuples)
 
-        # This is ugly but necessary because the different spectograms have different lengths, so
-        # np.array(new_spectograms) doesn't work
-        for i in range(len(new_spectograms)):
-            bird_data[bird_name]["Xs_train"][i] = new_spectograms[i].copy(order='C')
+        # This is ugly but necessary because the different spectrograms have different lengths, so
+        # np.array(new_spectrograms) doesn't work
+        for i in range(len(new_spectrograms)):
+            bird_data[bird_name]["Xs_train"][i] = new_spectrograms[i].copy(order='C')
         bird_data[bird_name]["tuples"] = new_tuples
 
         # Store the results, if write_cache = True
@@ -572,10 +571,10 @@ def resample_data(bird_data, bird_names, old_frequencies, new_frequencies, name,
     return bird_data
 
 
-def standardize_data(bird_data, coarse_mode="per_spectogram", fine_mode="per_row"):
+def standardize_data(bird_data, coarse_mode="per_spectrogram", fine_mode="per_row"):
     """
     Takes as input a dictionary containing the data of different birds (as returned by the function 'load_bird_data') and
-    standardizes the spectograms. The standardization can be either done for each spectogram (coarse_mode = "per_spectogram")
+    standardizes the spectrograms. The standardization can be either done for each spectrogram (coarse_mode = "per_spectrogram")
     or for each bird (coarse_mode = "per_bird"). Furthermore, you can decide, whether the standardization should be done
     per row (fine_mode = "per_row"), in which case the means and stds are computed per row, or if you want to use just one scalar
     for the mean and std (fine_mode = "scalar"). The two parameters 'coarse_mode' and 'fine_mode' can be combined arbitrarily.
@@ -587,8 +586,8 @@ def standardize_data(bird_data, coarse_mode="per_spectogram", fine_mode="per_row
             ...
         }
     """
-    if coarse_mode not in ["per_bird", "per_spectogram"]:
-        raise Exception(f"'coarse_mode' must be one of ['per_bird', 'per_spectogram'], but you provided {coarse_mode}")
+    if coarse_mode not in ["per_bird", "per_spectrogram"]:
+        raise Exception(f"'coarse_mode' must be one of ['per_bird', 'per_spectrogram'], but you provided {coarse_mode}")
     if fine_mode not in ["per_row", "scalar"]:
         raise Exception(f"'fine_mode' must be one of ['per_row', 'scalar'], but you provided {fine_mode}")
 
@@ -610,7 +609,7 @@ def standardize_data(bird_data, coarse_mode="per_spectogram", fine_mode="per_row
             for i in range(specs.shape[0]):
                 specs[i] = (specs[i] - means) / stds
 
-        elif coarse_mode == "per_spectogram":
+        elif coarse_mode == "per_spectrogram":
             for i in range(specs.shape[0]):
                 if fine_mode == "scalar":
                     specs[i] = (specs[i] - np.mean(specs[i])) / np.std(specs[i])
@@ -654,16 +653,16 @@ def compute_max_window_sizes(bird_data, wnd_sz, dt):
     """
     result = {}
     for bird_name in bird_data.keys():
-        spectograms = bird_data[bird_name]["Xs_train"]
-        total_amount = sum(map(lambda spec: len(range(0, spec.shape[1]-wnd_sz, dt)), spectograms))
+        spectrograms = bird_data[bird_name]["Xs_train"]
+        total_amount = sum(map(lambda spec: len(range(0, spec.shape[1]-wnd_sz, dt)), spectrograms))
         result[bird_name] = total_amount
 
     return result
 
 
-def extract_from_spectogram(spectogram, tuples, wnd_sz, dt, feature_extraction=False, online=False):
+def extract_from_spectrogram(spectrogram, tuples, wnd_sz, dt, feature_extraction=False, online=False):
     """
-    Takes a single spectogram and the corresponding tuples. The function then "walks" over the spectogram
+    Takes a single spectrogram and the corresponding tuples. The function then "walks" over the spectrogram
     from left to right and extracts windows of size 'wnd_sz', using a stride of 'dt'. It keeps track of the
     amount of on- and off-tuples and finally returns the resulting windows in two separate arrays.
     """
@@ -679,16 +678,16 @@ def extract_from_spectogram(spectogram, tuples, wnd_sz, dt, feature_extraction=F
         else:
             left = int(t-wnd_sz)
             right = int(t+wnd_sz)
-        if left < 0 or right >= spectogram.shape[1]:
+        if left < 0 or right >= spectrogram.shape[1]:
             return None
         if feature_extraction:
-            X_tmp = extract_features(spectogram[:, left:right])
+            X_tmp = extract_features(spectrogram[:, left:right])
         else:
-            X_tmp = spectogram[:, left:right]
+            X_tmp = spectrogram[:, left:right]
         return X_tmp
 
-    # "Walk" over the spectogram from left to right, making strides of size 'dt'
-    for t in range(0, spectogram.shape[1], dt):
+    # "Walk" over the spectrogram from left to right, making strides of size 'dt'
+    for t in range(0, spectrogram.shape[1], dt):
         X_tmp = get_wnd_data(t)
         if isinstance(X_tmp, type(None)):
             continue
@@ -703,7 +702,7 @@ def extract_from_spectogram(spectogram, tuples, wnd_sz, dt, feature_extraction=F
 
 def create_windows(bird_data, wnd_sizes, feature_extraction=False, limits=None,  on_fracs=None, dt=5, online=False, seed=None):
     """
-    For every window size in 'wnd_sizes' convert the spectograms in the 'bird_data' dictionary to
+    For every window size in 'wnd_sizes' convert the spectrograms in the 'bird_data' dictionary to
     a set of windows.
 
     'bird_data' should have the form:
@@ -712,8 +711,8 @@ def create_windows(bird_data, wnd_sizes, feature_extraction=False, limits=None, 
             "bird_name2": {"Xs_train" : Xs_train, "tuples" : ground_truth_tuples},
             ...
         }
-    where "Xs_train" is a list of spectograms and "tuples" a list of tuples of the form (on,off,SETindex,bird_name) denoting
-    the start (on) and end (off) of a syllable, and the spectogram index (SETindex) of said syllable, and the name of the bird
+    where "Xs_train" is a list of spectrograms and "tuples" a list of tuples of the form (on,off,SETindex,bird_name) denoting
+    the start (on) and end (off) of a syllable, and the spectrogram index (SETindex) of said syllable, and the name of the bird
     (bird_name) from which the syllable stems from.
 
     'wnd_sizes' can be either an integer or a list of integers denoting different window sizes.
@@ -749,7 +748,7 @@ def create_windows(bird_data, wnd_sizes, feature_extraction=False, limits=None, 
 
     'dt' is the stride with which the windows should be sampled.
 
-    'online' is a boolean variable indicating whether only spectogram columns before the target column should be extracted or
+    'online' is a boolean variable indicating whether only spectrogram columns before the target column should be extracted or
     also columns after the target column
     """
     # Set seed if necessary
@@ -801,7 +800,7 @@ def create_windows(bird_data, wnd_sizes, feature_extraction=False, limits=None, 
             results[wnd_sz][bird_name] = {}
             real_configs[wnd_sz][bird_name] = {}
 
-            spectograms = bird_data[bird_name]["Xs_train"]
+            spectrograms = bird_data[bird_name]["Xs_train"]
             tuples = bird_data[bird_name]["tuples"]
 
             # If 'limits' contains fractions, compute the corresponding absolute numbers
@@ -819,23 +818,23 @@ def create_windows(bird_data, wnd_sizes, feature_extraction=False, limits=None, 
                 on_num = on_fracs[bird_name]
             off_num = limit - on_num
 
-            # Get a shuffled list of the indices of the spectograms
-            ids = random.sample(range(len(spectograms)), len(spectograms))
+            # Get a shuffled list of the indices of the spectrograms
+            ids = random.sample(range(len(spectrograms)), len(spectrograms))
 
-            # Two variables denoting how many spectograms on- and off-windows have already
+            # Two variables denoting how many spectrograms on- and off-windows have already
             # been sampled
             curr_on = curr_off = 0
             on_windows = []
             off_windows = []
 
-            # Iterate over all spectograms of this bird
+            # Iterate over all spectrograms of this bird
             for id in ids:
-                spectogram = spectograms[id]
+                spectrogram = spectrograms[id]
                 spec_tuples = [t for t in tuples if t[2] == id]
 
-                # Extract the windows of this spectogram
-                on_windows_tmp, off_windows_tmp = extract_from_spectogram(
-                    spectogram=spectogram,
+                # Extract the windows of this spectrogram
+                on_windows_tmp, off_windows_tmp = extract_from_spectrogram(
+                    spectrogram=spectrogram,
                     tuples=spec_tuples,
                     wnd_sz=wnd_sz,
                     dt=dt,

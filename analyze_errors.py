@@ -9,12 +9,12 @@ from utils import (
     DEVICE, BIRD_NAMES, DATA_PATH, MODEL_PATH, PREDICTIONS_PATH, TOLERANCE,
 
     # Data handling functions
-    load_bird_data, extract_labelled_spectograms, train_test_split,
+    load_bird_data, extract_labelled_spectrograms, train_test_split,
     extract_birds, create_windows, store_birds, load_birds, store_dataset,
     load_dataset, flatten_windows_dic, standardize_data,
 
     # Other stuff
-    hash_spectograms, tuples2vector, score_predictions
+    hash_spectrograms, tuples2vector, score_predictions
 )
 
 from classifiers import (
@@ -29,9 +29,9 @@ from classifiers import (
 )
 
 
-def predict_dataset(model, spectograms, ground_truth_tuples, name, read_cache=True, write_cache=True):
+def predict_dataset(model, spectrograms, ground_truth_tuples, name, read_cache=True, write_cache=True):
     """
-    Makes predictions for the specified dataset consisting of spectograms (parameter 'spectograms')
+    Makes predictions for the specified dataset consisting of spectrograms (parameter 'spectrograms')
     and labelled tuples (parameter 'ground_truth_tuples') of the form (on, off, SETindex, bird_name)
 
     If 'read_cache==True', then the
@@ -47,21 +47,21 @@ def predict_dataset(model, spectograms, ground_truth_tuples, name, read_cache=Tr
         return load(p)
 
     results = []
-    # Iterate over all spectograms
-    for index, spec in enumerate(spectograms):
+    # Iterate over all spectrograms
+    for index, spec in enumerate(spectrograms):
         if index % 20 == 0:
             gc.collect()
-            print(index, "/", len(spectograms))
+            print(index, "/", len(spectrograms))
 
-        # Generate predictions for current spectogram. Make sure that they are sorted
+        # Generate predictions for current spectrogram. Make sure that they are sorted
         y_pred = sorted(model(spec, index),
                         key=lambda t: (t[2], t[0], t[1]))
 
-        # Fetch the true tuples for this spectogram. Make sure that they are sorted
+        # Fetch the true tuples for this spectrogram. Make sure that they are sorted
         y_true = sorted([tup for tup in ground_truth_tuples if tup[2] == index],
                         key=lambda t: (t[2], t[0], t[1]))
 
-        results.append({"y_true": y_true, "y_pred": y_pred, "spectogram_length": len(spec[0])})
+        results.append({"y_true": y_true, "y_pred": y_pred, "spectrogram_length": len(spec[0])})
 
     # Store the results, if write_cache = True
     if write_cache:
@@ -130,11 +130,11 @@ def analyze_errors(predictions):
     solution_tuples = []
     solution_vector = []
 
-    # Iterate through all spectograms
+    # Iterate through all spectrograms
     for index, result in enumerate(predictions):
         y_true = result['y_true']
         y_pred = result['y_pred']
-        length = result['spectogram_length']
+        length = result['spectrogram_length']
 
         prediction_tuples.append((y_pred, length))
         solution_tuples.append((y_true, length))
@@ -218,8 +218,8 @@ def compare_classifiers(dataset=None, model_dic=None, print_summary=True):
             "bird_name2": {"Xs_train" : Xs_train, "tuples" : ground_truth_tuples},
             ...
         }
-    where "Xs_train" is a list of spectograms and "tuples" a list of tuples of the form (on,off,SETindex,bird_name) denoting
-    the start (on) and end (off) of a syllable, and the spectogram index (SETindex) of said syllable, and the name of the bird
+    where "Xs_train" is a list of spectrograms and "tuples" a list of tuples of the form (on,off,SETindex,bird_name) denoting
+    the start (on) and end (off) of a syllable, and the spectrogram index (SETindex) of said syllable, and the name of the bird
     (bird_name) from which the syllable stems from.
 
     'model_dic' is a dictionary containing a mapping of model names to models:
@@ -240,7 +240,7 @@ def compare_classifiers(dataset=None, model_dic=None, print_summary=True):
     # If dataset is not specified, use total dataset over all birds
     if dataset is None:
         dataset = load_bird_data()
-        dataset, _ = extract_labelled_spectograms(dataset)
+        dataset, _ = extract_labelled_spectrograms(dataset)
 
     bird_names = [key for key in list(dataset.keys()) if type(key) == np.str_ or type(key) == str]
 
@@ -252,7 +252,7 @@ def compare_classifiers(dataset=None, model_dic=None, print_summary=True):
     for bird_name in bird_names:
         gc.collect()
         bird_data = dataset[bird_name]
-        spectograms = bird_data['Xs_train']
+        spectrograms = bird_data['Xs_train']
         tuples = bird_data['tuples']
 
         results = {}
@@ -263,9 +263,9 @@ def compare_classifiers(dataset=None, model_dic=None, print_summary=True):
             print(f"Make predictions for bird {bird_name} using the model {model_name}")
 
             # Use a hash value in the name to check if the input file already exists or not
-            name = f"{model_name}_{bird_name}_hash_{hash_spectograms(spectograms)}"
+            name = f"{model_name}_{bird_name}_hash_{hash_spectrograms(spectrograms)}"
             results[model_name] = predict_dataset(model=model_dic[model_name],
-                                                  spectograms=spectograms, ground_truth_tuples=tuples,
+                                                  spectrograms=spectrograms, ground_truth_tuples=tuples,
                                                   name=name)
 
             # Analyze the errors of the different predictors
@@ -342,18 +342,18 @@ if __name__ == "__main__":
     rnn_path = path.join(base, MODEL_PATH+rnn_name)
 
     if not (path.isfile(cnn_path) and (not rnn_should_be_trained or path.isfile(rnn_path))):
-        # Load the data and get all labelled spectograms
+        # Load the data and get all labelled spectrograms
         bird_data = load_bird_data(names=["g17y2"])
 
         if standardize:
-            bird_data = standardize_data(bird_data, coarse_mode="per_spectogram", fine_mode="scalar")
-        data_labelled, _ = extract_labelled_spectograms(bird_data)
+            bird_data = standardize_data(bird_data, coarse_mode="per_spectrogram", fine_mode="scalar")
+        data_labelled, _ = extract_labelled_spectrograms(bird_data)
 
         # Perform a train-validation-test split
         data_train, data_test = train_test_split(bird_data=data_labelled, configs=0.33, seed=42)
         data_val, data_test = train_test_split(bird_data=data_test, configs=0.5, seed=42)
 
-        # Extract the windows from the spectograms
+        # Extract the windows from the spectrograms
         windows_train, _ = create_windows(bird_data=data_train, wnd_sizes=wnd_sz, limits=limit, on_fracs=0.5, dt=5, seed=42)
         windows_val, _ = create_windows(bird_data=data_val, wnd_sizes=wnd_sz, limits=int(limit/2), on_fracs=0.5, dt=5, seed=42)
         windows_test, _ = create_windows(bird_data=data_test, wnd_sizes=wnd_sz, limits=int(limit/2), on_fracs=0.5, dt=5, seed=42)
@@ -384,9 +384,9 @@ if __name__ == "__main__":
     if rnn_should_be_trained:
         print("RNN has ", sum(p.numel() for p in rnn.parameters()), " parameters.")
 
-    cnn_wrapped = wrap_cnn(cnn, mode="for_spectograms")
+    cnn_wrapped = wrap_cnn(cnn, mode="for_spectrograms")
     if rnn_should_be_trained:
-        rnn_wrapped = wrap_rnn(rnn, mode="for_spectograms")
+        rnn_wrapped = wrap_rnn(rnn, mode="for_spectrograms")
     # compare_classifiers(dataset=None, model_dic={"cnn": cnn_wrapped, "rnn": rnn_wrapped}, print_summary=True)
 
     transfer_model_dic_cnn = get_transfer_learning_models_CNN(
@@ -418,11 +418,11 @@ if __name__ == "__main__":
         transfer_model_dic_rnn["base_RNN"] = rnn
 
     for key in transfer_model_dic_cnn:
-        transfer_model_dic_cnn[key] = wrap_cnn(transfer_model_dic_cnn[key], mode="for_spectograms", normalize_input=True)
+        transfer_model_dic_cnn[key] = wrap_cnn(transfer_model_dic_cnn[key], mode="for_spectrograms", normalize_input=True)
 
     if rnn_should_be_trained:
         for key in transfer_model_dic_rnn:
-            transfer_model_dic_rnn[key] = wrap_rnn(transfer_model_dic_rnn[key], mode="for_spectograms", normalize_input=True)
+            transfer_model_dic_rnn[key] = wrap_rnn(transfer_model_dic_rnn[key], mode="for_spectrograms", normalize_input=True)
 
     compare_classifiers(dataset=None, model_dic=transfer_model_dic_cnn, print_summary=True)
     if rnn_should_be_trained:
