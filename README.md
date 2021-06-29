@@ -1,6 +1,7 @@
 # NeuralSystems
 This is the repository for the group project in Neural Systems 2021. This `README` contains the following subsections:
 * Requirements
+* Setup
 * Tasks
 * How to use one of the trained models to make predictions
   * Organization and nomenclature of neural networks
@@ -20,6 +21,13 @@ All code of this repository has been tested using **Python 3.9.5**. It's very we
 * torch==1.8.1
 
 Again, different versions of said libraries might work as well, but we don't give any guarantees.
+
+## Setup
+After cloning the github repository, you need to set it up. This can be done by running the setup script:
+```bash
+python setup.py
+```
+This will download the training data and ensure that all necessary folders and files are present.
 
 ## Tasks
 For part C we were asked to solve the following tasks:
@@ -146,6 +154,10 @@ If you need to know more about the Euler cluster and how to use it than is speci
 If you want to replicate our results, it is advisable to run the project on the Euler cluster. This process is straightforward. Once you logged in on the Euler, clone the repository, using the command:
 ```bash
 git clone https://github.com/jubueche/NeuralSystems.git
+```
+Then you need to set the project up in order to get the training data. This can be done using the setup script:
+```bash
+python setup.py
 ```
 Since the Euler cluster does not provide a graphical interface, it is not possible to run the Jupyter notebook directly on Euler (at least not without a considerable effort using port-forwarding). An easy solution to this problem is to simply convert the Jupyter notebook to a standard python file. You can achieve this using the following command
 ```bash
