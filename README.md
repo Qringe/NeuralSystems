@@ -30,6 +30,32 @@ python setup.py
 This will download the training data and ensure that all necessary folders and files are present.
 
 ## Tasks
+
+In part A we were asked to solve the following tasks:
+•	Task 1: Introduce your approach here. Which function do you choose? Which hyperparameters/architectures do you want to screen?
+(Note that in Part C you can get creative, so it is recommended to choose a simple network here)
+
+Write a helper function nn_song_stereotypy.py replacing the linear regressor with a feed-forward neural network (similar to the pitch regression example with e.g. 3-4 layers).  Explore the MSE on the training data for a number of configurations. Plot example spectrograms.
+
+•	Task 2: The annotation data structures contain relevant information including the annotations y with
+SETindex determining the corresponding spectrogram in Xs_train
+onset of the annotated element in spectrogram columns (onset_columns)
+offset of the annotated element in spectrogram columns (offset_columns)
+and a cluster ID (distinct number for each syllable; clust).	
+1) Draw a random spectrogram
+   	2) Find all annotations for that spectrogram
+3) Plot the spectrogram and indicate the annotated segments (location and cluster membership)
+
+•	Task 3: Retrain the last layers to output a binary vocal detection variable
+In simple words, we can say that the first layers of a feed-forward neural net are more concerned with feature extraction, while the last layers are concerned with decision-making. We assume that song stereotypy feature extraction is similar to our task. So we try to only retrain the last layers.
+	Write a helper function transfer_nn_vocal_detector.py which
+   	 - takes the pretrained model as an input
+   	 - retrains the n last layers
+    	- is supervised by binary labels of spectrogram columns 
+(1=vocal / 0=non-vocal). Store the parameters of your model and report statistics of the training process (accuracy over epochs, mse on training data,...)    
+    	Plot an example spectrogram with true and predicted segments
+•	Task 4: Write an online variant as in Part A, using a non-linear predictor.
+
 For part C we were asked to solve the following tasks:
 * **Task 1**: For each bird, for offline and online variants of the task, and for each of the above window sizes, please train a network that will predict segmentation on the 10% test set of that bird. Please store the optimal hyperparameters (including optimal gap size), optimizer choices, loss functions, and trained network parameters (using pytorch-checkpoint, or a well-documented equivalent method).
 * **Task 2**: Can you improve segmentation by extending the pipeline with a filter to remove noise in binary labelling across a given time window? If so, please document your approach and store any parameters that you use.
